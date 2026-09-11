@@ -8,6 +8,7 @@
 
 namespace TypePhp;
 
+use TypePhp\Analysis\CompilationStatistics;
 use TypePhp\Build\PhpxLocator;
 
 use League\CLImate\CLImate;
@@ -529,6 +530,8 @@ class CompilerBase implements PropertyAccessContext
     protected bool $nanoPolicyMode = false;
     /** @var list<string> Include directories published by Nano Composer packages. */
     protected array $nanoRuntimeIncludePaths = [];
+    /** @var list<string> */
+    protected array $nanoRuntimeDefines = [];
     /** @var array<string, true> Package source files compiled into a Nano executable. */
     protected array $nanoRuntimeSources = [];
     /** Latest header timestamp used by the shared object-cache path. */
@@ -653,6 +656,9 @@ class CompilerBase implements PropertyAccessContext
      */
     protected array $classSubClasses = [];
 
+    /** Whole-program usage collected during the convert phase. */
+    protected CompilationStatistics $compilationStatistics;
+
     public function __construct(string $rootPath)
     {
         $this->osType = PHP_OS_FAMILY;
@@ -663,6 +669,7 @@ class CompilerBase implements PropertyAccessContext
             $this->error('PHP 8.6.0 or later is not supported');
         }
         $this->rootPath = $rootPath;
+        $this->compilationStatistics = new CompilationStatistics();
         $this->symbols = new SymbolRepository();
         $this->setPhpVersion(self::DEFAULT_PHP_VERSION);
         $this->printer = new PrettyPrinter\Standard();
@@ -927,7 +934,38 @@ class CompilerBase implements PropertyAccessContext
 
     public function getTypeFromZendType(string $type): string
     {
-        return $this->zendTypeMap[$type] ?? self::PHP_RUNTIME_TYPE_MAP[$type] ?? Type::VAR;
+        $resolved = $this->zendTypeMap[$type] ?? self::PHP_RUNTIME_TYPE_MAP[$type] ?? Type::VAR;
+        $this->compilationStatistics->record(CompilationStatistics::TYPES, $resolved);
+        return $resolved;
+    }
+
+    public function getCompilationStatistics(): CompilationStatistics
+    {
+        return $this->compilationStatistics;
+    }
+
+    /** Record value types that survived into an emitted translation unit. */
+    protected function recordEmittedTypes(string $code): void
+    {
+        foreach ([
+            Type::VAR,
+            Type::BOOL,
+            Type::INT,
+            Type::FLOAT,
+            Type::STR,
+            Type::ARRAY,
+            Type::OBJECT,
+            Type::RESOURCE,
+            Type::STREAM,
+            Type::BIGINT,
+            Type::BIGFLOAT,
+            Type::DECIMAL,
+            Type::BOX,
+        ] as $type) {
+            if (str_contains($code, $type)) {
+                $this->compilationStatistics->record(CompilationStatistics::TYPES, $type);
+            }
+        }
     }
 
     public function getObjectType(string $object): string
@@ -1537,6 +1575,10 @@ class CompilerBase implements PropertyAccessContext
 
     protected function getClassEntryPtr(string $className): string
     {
+        $this->compilationStatistics->record(
+            CompilationStatistics::CLASSES,
+            ltrim($className, '\\'),
+        );
         $id = $this->getClassId($className);
         $persistent = isset($this->persistentClassMap[$className]);
         $helper = $persistent ? 'get_persistent_class' : 'get_class';

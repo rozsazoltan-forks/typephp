@@ -721,12 +721,17 @@ class Translator extends Preprocessor
 
     public function convertFile(string $file): ?string
     {
+        $ownsStatisticsSession = !$this->compilationStatistics->isCollecting();
+        if ($ownsStatisticsSession) {
+            $this->compilationStatistics->begin();
+        }
         // Public embedding/test callers may prepare files directly instead of
         // using SourcePipelineTrait::prepare(). Preserve the same explicit
         // prepare -> Trait composition -> convert ordering for that API.
-        $this->composeTraitDeclarations(array_keys($this->preparedFileAsts));
-        $previousPhase = $this->enterCompilerPhase(self::PHASE_CONVERT);
+        $previousPhase = null;
         try {
+            $this->composeTraitDeclarations(array_keys($this->preparedFileAsts));
+            $previousPhase = $this->enterCompilerPhase(self::PHASE_CONVERT);
             if (!$this->declarationExpressionsFinalized) {
                 $this->finalizeDeclarationExpressions(array_keys($this->preparedFileAsts));
             }
@@ -737,6 +742,7 @@ class Translator extends Preprocessor
             while (true) {
                 try {
                     $cppCode = $this->doConvert($phpCode);
+                    $this->recordEmittedTypes($cppCode);
                     $cppFile = $this->getCppFile($file);
                     if ($cppCode === '') {
                         $this->removeEmptyTranslationUnitArtifacts($cppFile);
@@ -752,7 +758,12 @@ class Translator extends Preprocessor
                 }
             }
         } finally {
-            $this->restoreCompilerPhase($previousPhase);
+            if ($previousPhase !== null) {
+                $this->restoreCompilerPhase($previousPhase);
+            }
+            if ($ownsStatisticsSession) {
+                $this->compilationStatistics->finish();
+            }
         }
     }
 
@@ -2008,8 +2019,10 @@ CODE;
             $this->getBuildDir(),
             $this->targetName,
             true,
+            $this->getCompilationStatistics(),
         );
         $this->nanoRuntimeIncludePaths = $composition['includeDirs'];
+        $this->nanoRuntimeDefines = $composition['defines'];
         $this->nanoRuntimeSources = array_fill_keys($composition['packageSources'], true);
         $this->nanoRuntimeHeaderMtime = $this->latestNanoHeaderMtime(
             $this->nanoRuntimeIncludePaths,

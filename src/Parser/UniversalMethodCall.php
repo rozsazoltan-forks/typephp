@@ -2,6 +2,7 @@
 
 namespace TypePhp\Parser;
 
+use TypePhp\Analysis\CompilationStatistics;
 use TypePhp\Type;
 
 use TypePhp\CompilerBase;
@@ -600,6 +601,17 @@ trait UniversalMethodCall
      */
     protected function parseUniversalMethodCall(Node\Expr\MethodCall $expr, string $receiver, string $method, array $def, bool $isVar = true): ?string
     {
+        if ($def['handler'] === 'php_fn') {
+            $function = strtolower($def['fn']);
+            $this->compilationStatistics->record(CompilationStatistics::FUNCTIONS, $function);
+            $this->compilationStatistics->record(CompilationStatistics::DIRECT_FUNCTIONS, $function);
+        } elseif ($def['handler'] === 'cpp_fn'
+            && str_starts_with($def['fn'], 'php::fn::')
+        ) {
+            $function = strtolower(substr($def['fn'], strlen('php::fn::')));
+            $this->compilationStatistics->record(CompilationStatistics::FUNCTIONS, $function);
+            $this->compilationStatistics->record(CompilationStatistics::DIRECT_FUNCTIONS, $function);
+        }
         if ($this->isWasiTarget()) {
             if ($def['handler'] === 'php_fn') {
                 $this->assertWasiFunctionSupported($expr, $def['fn']);

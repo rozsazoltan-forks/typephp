@@ -41,6 +41,7 @@ trait NativeCommandOptionsTrait
                 'PHPX_NANO=1',
                 '_POSIX_C_SOURCE=200809L',
             );
+            array_push($userDefines, ...$this->nanoRuntimeDefines);
             if ($this->isWasiTarget()) {
                 $userDefines[] = 'ZEND_MM_ERROR=0';
             }

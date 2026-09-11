@@ -334,9 +334,11 @@ trait SourcePipelineTrait
 
     public function convert(array $files): array
     {
-        $this->composeTraitDeclarations($files);
-        $previousPhase = $this->enterCompilerPhase(self::PHASE_CONVERT);
+        $this->compilationStatistics->begin();
+        $previousPhase = null;
         try {
+            $this->composeTraitDeclarations($files);
+            $previousPhase = $this->enterCompilerPhase(self::PHASE_CONVERT);
             // All declarations are now known. Lower declaration constant
             // expressions before translating any function body so cache IDs
             // are assigned exclusively in the convert phase.
@@ -392,7 +394,10 @@ trait SourcePipelineTrait
 
             return $sourceFiles;
         } finally {
-            $this->restoreCompilerPhase($previousPhase);
+            if ($previousPhase !== null) {
+                $this->restoreCompilerPhase($previousPhase);
+            }
+            $this->compilationStatistics->finish();
         }
     }
 }

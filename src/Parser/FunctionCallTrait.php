@@ -7,6 +7,7 @@
 
 namespace TypePhp\Parser;
 
+use TypePhp\Analysis\CompilationStatistics;
 use TypePhp\Type;
 
 use PhpParser\Node;
@@ -104,12 +105,20 @@ trait FunctionCallTrait
         }
 
         if ($this->isVarExpr($expr->name)) {
+            $this->compilationStatistics->record(
+                CompilationStatistics::DYNAMIC_CAPABILITIES,
+                'function-call',
+            );
             $fn   = $this->parseIdentifier($expr->name);
             $placeHolder = $fn;
             $name = '';
         } elseif ($expr->name->getType() === 'Name' or $expr->name->getType() === 'Name_FullyQualified') {
             $name = $this->parseIdentifier($expr->name);
             $globalName = ltrim($name, '\\');
+            $this->compilationStatistics->record(
+                CompilationStatistics::FUNCTIONS,
+                strtolower($globalName),
+            );
             $namedExit = $this->parseNamedExitMessageCall($globalName, $expr);
             if ($namedExit !== null) {
                 return $namedExit;
@@ -185,14 +194,30 @@ trait FunctionCallTrait
             $this->checkInternalFunctionArgCount($name, $expr);
             $code = $this->parseFuncCallWithOptimizer($name, $expr);
             if ($code !== false) {
+                // Constant folding and native container operations do not
+                // retain the PHP function. Record only emitted stdlib calls.
+                if (str_contains($code, 'php::fn::')) {
+                    $this->compilationStatistics->record(
+                        CompilationStatistics::DIRECT_FUNCTIONS,
+                        strtolower($globalName),
+                    );
+                }
                 return $code;
             }
+            $this->compilationStatistics->record(
+                CompilationStatistics::RUNTIME_FUNCTIONS,
+                strtolower($globalName),
+            );
             $placeHolder = $this->identifierToStr($expr->name);
             $fn = $this->getFuncPtr($name);
             if ($this->debug) {
                 $this->context->beforeStmtLines[] = $this->formatCppLineComment('Func Call: ', $name . '()');
             }
         } else {
+            $this->compilationStatistics->record(
+                CompilationStatistics::DYNAMIC_CAPABILITIES,
+                'function-call',
+            );
             $tmpVar = $this->addTmpVar(Type::VAR);
             $this->context->beforeStmtLines[] = $tmpVar . ' = ' . $this->parseExpr($expr->name) . ';';
             $placeHolder = $fn = $tmpVar;
