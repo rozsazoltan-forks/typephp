@@ -39,7 +39,9 @@ int main(int argc, char **argv)
     struct timeval wall;
     struct timespec realtime;
     struct timespec monotonic;
+    struct timespec after_sleep;
     struct timespec resolution;
+    const struct timespec sleep_duration = {0, 30000000};
     struct winsize window;
     DIR *directory;
     struct dirent *entry;
@@ -113,9 +115,17 @@ int main(int argc, char **argv)
         || clock_gettime(CLOCK_REALTIME, &realtime) != 0
         || clock_gettime(CLOCK_MONOTONIC, &monotonic) != 0
         || clock_getres(CLOCK_MONOTONIC, &resolution) != 0
-        || realtime.tv_sec <= 0 || monotonic.tv_sec <= 0
-        || resolution.tv_sec != 1 || resolution.tv_nsec != 0) {
+        || realtime.tv_sec <= 0 || monotonic.tv_nsec < 0
+        || monotonic.tv_nsec >= 1000000000L
+        || resolution.tv_sec != 0 || resolution.tv_nsec != 10000000L) {
         return fail("clock ABI");
+    }
+    if (nanosleep(&sleep_duration, NULL) != 0
+        || clock_gettime(CLOCK_MONOTONIC, &after_sleep) != 0
+        || after_sleep.tv_sec < monotonic.tv_sec
+        || (after_sleep.tv_sec == monotonic.tv_sec
+            && after_sleep.tv_nsec - monotonic.tv_nsec < 20000000L)) {
+        return fail("interruptible nanosleep");
     }
 
     (void) write(STDOUT_FILENO, "basic syscalls: OK\n",

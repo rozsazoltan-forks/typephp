@@ -89,6 +89,60 @@ TYPEPHP_EXCEPTION_WITH_ERROR 12
 TYPEPHP_EXCEPTION_WITH_ERROR 13
 TYPEPHP_EXCEPTION_WITH_ERROR 14
 
+.macro TYPEPHP_IRQ number vector
+.global typephp_os_irq_\number
+.type typephp_os_irq_\number, @function
+typephp_os_irq_\number:
+    pushq $0
+    pushq $\vector
+    jmp typephp_os_irq_common
+.size typephp_os_irq_\number, . - typephp_os_irq_\number
+.endm
+
+TYPEPHP_IRQ 0 32
+TYPEPHP_IRQ 4 36
+
+.type typephp_os_irq_common, @function
+.extern typephp_os_irq_dispatch
+typephp_os_irq_common:
+    push %rbx
+    push %rcx
+    push %rdx
+    push %rsi
+    push %rdi
+    push %rbp
+    push %r8
+    push %r9
+    push %r10
+    push %r11
+    push %r12
+    push %r13
+    push %r14
+    push %r15
+    push %rax
+
+    mov %rsp, %rdi
+    call typephp_os_irq_dispatch
+
+    pop %rax
+    pop %r15
+    pop %r14
+    pop %r13
+    pop %r12
+    pop %r11
+    pop %r10
+    pop %r9
+    pop %r8
+    pop %rbp
+    pop %rdi
+    pop %rsi
+    pop %rdx
+    pop %rcx
+    pop %rbx
+    add $16, %rsp
+    iretq
+.size typephp_os_irq_common, . - typephp_os_irq_common
+
 .type typephp_os_exception_common, @function
 .extern typephp_os_exception_dispatch
 typephp_os_exception_common:
@@ -133,14 +187,15 @@ typephp_os_exception_common:
 .global typephp_os_enter_user
 .type typephp_os_enter_user, @function
 typephp_os_enter_user:
-    # RDI = ELF entry, RSI = top of the user stack. Interrupts remain masked;
-    # SYSCALL is synchronous and the first process manager has no scheduler.
+    # RDI = ELF entry, RSI = top of the user stack. Hardware interrupts stay
+    # enabled in Ring 3 so timer and serial input can arrive while a command is
+    # running. IA32_FMASK masks them again on every SYSCALL entry.
     mov $0x1b, %ax
     mov %ax, %ds
     mov %ax, %es
     pushq $0x1b
     push %rsi
-    pushq $0x2
+    pushq $0x202
     pushq $0x23
     push %rdi
     iretq

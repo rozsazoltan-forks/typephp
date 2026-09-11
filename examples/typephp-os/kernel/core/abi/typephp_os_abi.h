@@ -43,6 +43,8 @@ void typephp_os_process_start(void);
 long typephp_os_fs_path_type(const char *path);
 long typephp_os_fs_getdents64(int fd, void *buffer, size_t capacity);
 long typephp_os_console_read(void *buffer, size_t size);
+void typephp_os_console_enable_interrupts(void);
+void typephp_os_console_interrupt(void);
 
 #ifdef __cplusplus
 }

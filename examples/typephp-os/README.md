@@ -224,13 +224,16 @@ segment.
 The native x86-64 `SYSCALL` boundary provides synchronous `read`, `write`, `close`,
 `lseek`, `openat`, `exit`/`exit_group`, `getcwd`, `chdir`, `mkdir`, `rmdir`,
 `unlink`, file stat/access/persistence/truncation families, fixed identity
-queries, `time`, `gettimeofday`, `clock_gettime`, `clock_getres`, `brk`,
+queries, `time`, `gettimeofday`, `clock_gettime`, `clock_getres`, `nanosleep`, `brk`,
 anonymous private `mmap`, `mprotect`, `munmap`, `getdents64`, the initial
 `fcntl` flag operations, fixed-console `ioctl(TIOCGWINSZ)`, and private
 spawn and same-directory rename operations. The former private directory-list
 syscall has been removed; `ls` and PHP Nano use the standard directory ABI. Standard
 input and output are backed by QEMU's COM1 serial console. Syscall numbers are
 shared by the kernel and userspace through `typephp_os_syscall.h`.
+The 8259 PIC routes a 100 Hz PIT timer on IRQ0 and COM1 input on IRQ4. Console
+reads and sleeps block with `HLT` until an interrupt arrives, so the resident
+shell no longer consumes a host CPU core while it waits at the prompt.
 Entry immediately switches from the untrusted user RSP to a dedicated kernel
 stack. Return uses `iretq`, allowing synchronous spawn/exit to replace the
 complete saved user context.

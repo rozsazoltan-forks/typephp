@@ -30,6 +30,7 @@ uid_t getuid(void);
 uid_t geteuid(void);
 gid_t getgid(void);
 gid_t getegid(void);
+unsigned int sleep(unsigned int seconds);
 int brk(void *address);
 void *sbrk(intptr_t increment);
 void _exit(int status) __attribute__((noreturn));

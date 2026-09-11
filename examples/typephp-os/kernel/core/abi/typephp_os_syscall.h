@@ -18,6 +18,7 @@ enum typephp_os_syscall_number {
     TYPEPHP_SYS_BRK = 12,
     TYPEPHP_SYS_IOCTL = 16,
     TYPEPHP_SYS_ACCESS = 21,
+    TYPEPHP_SYS_NANOSLEEP = 35,
     TYPEPHP_SYS_GETPID = 39,
     TYPEPHP_SYS_EXIT = 60,
     TYPEPHP_SYS_UNAME = 63,

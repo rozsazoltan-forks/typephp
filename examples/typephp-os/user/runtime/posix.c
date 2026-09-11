@@ -142,18 +142,16 @@ int clock_getres(clockid_t clock_id, struct timespec *value)
 
 unsigned int sleep(unsigned int seconds)
 {
-    const time_t deadline = time(NULL) + seconds;
-    while (time(NULL) < deadline) {
-        __asm__ volatile("pause");
-    }
-    return 0;
+    struct timespec duration = {(time_t) seconds, 0};
+    struct timespec remaining = {0, 0};
+    return nanosleep(&duration, &remaining) == 0
+        ? 0
+        : (unsigned int) remaining.tv_sec + (remaining.tv_nsec != 0);
 }
 
 int nanosleep(const struct timespec *duration, struct timespec *remaining)
 {
-    (void) remaining;
-    sleep((unsigned int) duration->tv_sec + (duration->tv_nsec != 0));
-    return 0;
+    return (int) syscall(TYPEPHP_SYS_NANOSLEEP, duration, remaining);
 }
 
 int uname(struct utsname *value)

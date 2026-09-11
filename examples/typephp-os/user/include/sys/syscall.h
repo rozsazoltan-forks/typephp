@@ -16,6 +16,7 @@
 #define SYS_brk TYPEPHP_SYS_BRK
 #define SYS_ioctl TYPEPHP_SYS_IOCTL
 #define SYS_access TYPEPHP_SYS_ACCESS
+#define SYS_nanosleep TYPEPHP_SYS_NANOSLEEP
 #define SYS_getpid TYPEPHP_SYS_GETPID
 #define SYS_exit TYPEPHP_SYS_EXIT
 #define SYS_uname TYPEPHP_SYS_UNAME

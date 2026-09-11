@@ -14,5 +14,6 @@ struct timespec {
 time_t time(time_t *result);
 int clock_gettime(clockid_t clock_id, struct timespec *value);
 int clock_getres(clockid_t clock_id, struct timespec *value);
+int nanosleep(const struct timespec *duration, struct timespec *remaining);
 
 #endif

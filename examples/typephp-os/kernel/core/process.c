@@ -35,6 +35,14 @@ enum {
     USER_DATA_SELECTOR = 0x1b,
     KERNEL_CODE_SELECTOR = 0x08,
     TSS_SELECTOR = 0x28,
+    PIC_MASTER_COMMAND = 0x20,
+    PIC_MASTER_DATA = 0x21,
+    PIC_SLAVE_COMMAND = 0xa0,
+    PIC_SLAVE_DATA = 0xa1,
+    PIC_END_OF_INTERRUPT = 0x20,
+    PIT_CHANNEL_0 = 0x40,
+    PIT_COMMAND = 0x43,
+    TIMER_FREQUENCY = 100,
     MAX_USER_ARGUMENTS = 8,
     USER_PATH_MAX = 128,
     UTSNAME_LENGTH = 65,
@@ -216,6 +224,8 @@ extern void typephp_os_exception_11(void);
 extern void typephp_os_exception_12(void);
 extern void typephp_os_exception_13(void);
 extern void typephp_os_exception_14(void);
+extern void typephp_os_irq_0(void);
+extern void typephp_os_irq_4(void);
 extern int rename(const char *old_path, const char *new_path);
 extern uint64_t physical_page_available(void);
 extern uint64_t physical_page_total(void);
@@ -229,6 +239,7 @@ static task_state_segment tss;
 unsigned char typephp_os_syscall_stack[64u * 1024u] __attribute__((aligned(16)));
 uint64_t typephp_os_syscall_user_rsp;
 static process_state foreground_process = {.pid = 1, .cwd = "/"};
+static volatile uint64_t timer_ticks;
 
 enum {
     IA32_EFER = 0xc0000080u,
@@ -243,6 +254,57 @@ static uint64_t read_msr(uint32_t index)
     uint32_t high;
     __asm__ volatile("rdmsr" : "=a"(low), "=d"(high) : "c"(index));
     return ((uint64_t) high << 32u) | low;
+}
+
+static void outb(uint16_t port, uint8_t value)
+{
+    __asm__ volatile("outb %0, %1" : : "a"(value), "Nd"(port));
+}
+
+static void io_wait(void)
+{
+    outb(0x80, 0);
+}
+
+static void install_interrupt_controller(void)
+{
+    const uint16_t divisor = (uint16_t) (1193182u / TIMER_FREQUENCY);
+
+    /* Remap the legacy PIC away from the CPU exception vectors. */
+    outb(PIC_MASTER_COMMAND, 0x11);
+    io_wait();
+    outb(PIC_SLAVE_COMMAND, 0x11);
+    io_wait();
+    outb(PIC_MASTER_DATA, 0x20);
+    io_wait();
+    outb(PIC_SLAVE_DATA, 0x28);
+    io_wait();
+    outb(PIC_MASTER_DATA, 0x04);
+    io_wait();
+    outb(PIC_SLAVE_DATA, 0x02);
+    io_wait();
+    outb(PIC_MASTER_DATA, 0x01);
+    io_wait();
+    outb(PIC_SLAVE_DATA, 0x01);
+    io_wait();
+
+    /* A 100 Hz periodic PIT is sufficient for the single-task sleep ABI. */
+    outb(PIT_COMMAND, 0x36);
+    outb(PIT_CHANNEL_0, (uint8_t) divisor);
+    outb(PIT_CHANNEL_0, (uint8_t) (divisor >> 8u));
+    typephp_os_console_enable_interrupts();
+
+    /* IRQ0 (PIT) and IRQ4 (COM1) only. The slave PIC stays fully masked. */
+    outb(PIC_SLAVE_DATA, 0xff);
+    outb(PIC_MASTER_DATA, (uint8_t) ~(UINT8_C(1) | UINT8_C(1) << 4u));
+}
+
+static void pic_end_of_interrupt(unsigned int irq)
+{
+    if (irq >= 8u) {
+        outb(PIC_SLAVE_COMMAND, PIC_END_OF_INTERRUPT);
+    }
+    outb(PIC_MASTER_COMMAND, PIC_END_OF_INTERRUPT);
 }
 
 static void write_msr(uint32_t index, uint64_t value)
@@ -348,6 +410,8 @@ static void install_descriptor_tables(void)
     install_idt_gate(12, typephp_os_exception_12, 0x8e);
     install_idt_gate(13, typephp_os_exception_13, 0x8e);
     install_idt_gate(14, typephp_os_exception_14, 0x8e);
+    install_idt_gate(32, typephp_os_irq_0, 0x8e);
+    install_idt_gate(36, typephp_os_irq_4, 0x8e);
     pointer.limit = sizeof(idt) - 1u;
     pointer.base = (uint64_t) (uintptr_t) idt;
     __asm__ volatile("lidt %0" : : "m"(pointer) : "memory");
@@ -362,6 +426,7 @@ static void install_descriptor_tables(void)
     write_msr(IA32_LSTAR, (uint64_t) (uintptr_t) typephp_os_syscall_entry);
     write_msr(IA32_FMASK, UINT64_C(0x700)); /* TF, IF and DF */
     write_msr(IA32_EFER, read_msr(IA32_EFER) | UINT64_C(1));
+    install_interrupt_controller();
 }
 
 static int read_exact(int fd, void *buffer, size_t size)
@@ -790,6 +855,7 @@ static long syscall_gettimeofday(user_timeval *result)
 
 static long syscall_clock(int clock_id, user_timespec *result, int resolution)
 {
+    uint64_t ticks;
     if (clock_id != 0 && clock_id != 1) {
         return -EINVAL;
     }
@@ -799,8 +865,66 @@ static long syscall_clock(int clock_id, user_timespec *result, int resolution)
     if (!user_buffer(result, sizeof(*result))) {
         return -EFAULT;
     }
-    result->seconds = resolution ? 1 : typephp_os_time_seconds();
-    result->nanoseconds = 0;
+    if (resolution) {
+        result->seconds = clock_id == 0 ? 1 : 0;
+        result->nanoseconds = clock_id == 0
+            ? 0
+            : 1000000000L / TIMER_FREQUENCY;
+        return 0;
+    }
+    if (clock_id == 0) {
+        result->seconds = typephp_os_time_seconds();
+        result->nanoseconds = 0;
+        return 0;
+    }
+    ticks = timer_ticks;
+    result->seconds = (long) (ticks / TIMER_FREQUENCY);
+    result->nanoseconds = (long) (ticks % TIMER_FREQUENCY)
+        * (1000000000L / TIMER_FREQUENCY);
+    return 0;
+}
+
+static long syscall_nanosleep(
+    const user_timespec *requested, user_timespec *remaining)
+{
+    uint64_t seconds;
+    uint64_t subsecond_ticks;
+    uint64_t duration_ticks;
+    uint64_t deadline;
+    long nanoseconds;
+
+    if (!user_buffer(requested, sizeof(*requested))) {
+        return -EFAULT;
+    }
+    if (remaining != 0 && !user_buffer(remaining, sizeof(*remaining))) {
+        return -EFAULT;
+    }
+    if (requested->seconds < 0 || requested->nanoseconds < 0
+        || requested->nanoseconds >= 1000000000L) {
+        return -EINVAL;
+    }
+    seconds = (uint64_t) requested->seconds;
+    nanoseconds = requested->nanoseconds;
+    subsecond_ticks = ((uint64_t) nanoseconds
+        + (1000000000u / TIMER_FREQUENCY) - 1u)
+        / (1000000000u / TIMER_FREQUENCY);
+    if (seconds > (UINT64_MAX - subsecond_ticks) / TIMER_FREQUENCY) {
+        return -EINVAL;
+    }
+    duration_ticks = seconds * TIMER_FREQUENCY + subsecond_ticks;
+    if (duration_ticks > INT64_MAX) {
+        return -EINVAL;
+    }
+    deadline = timer_ticks + duration_ticks;
+    while ((int64_t) (timer_ticks - deadline) < 0) {
+        /* The current single foreground process sleeps inside its syscall.
+         * IRQ0 advances timer_ticks and wakes HLT; no scheduler is required. */
+        __asm__ volatile("sti; hlt; cli" : : : "memory");
+    }
+    if (remaining != 0) {
+        remaining->seconds = 0;
+        remaining->nanoseconds = 0;
+    }
     return 0;
 }
 
@@ -1199,6 +1323,22 @@ void typephp_os_exception_dispatch(exception_frame *frame)
     restore_shell_after_fault(frame);
 }
 
+void typephp_os_irq_dispatch(exception_frame *frame)
+{
+    switch (frame->vector) {
+    case 32:
+        ++timer_ticks;
+        pic_end_of_interrupt(0);
+        return;
+    case 36:
+        typephp_os_console_interrupt();
+        pic_end_of_interrupt(4);
+        return;
+    default:
+        panic("unexpected hardware interrupt\n");
+    }
+}
+
 long typephp_os_syscall_dispatch(syscall_frame *frame)
 {
     switch (frame->rax) {
@@ -1255,6 +1395,9 @@ long typephp_os_syscall_dispatch(syscall_frame *frame)
     case TYPEPHP_SYS_ACCESS:
         return syscall_access_path(AT_FDCWD, (const char *) frame->rdi,
             (int) frame->rsi, 0);
+    case TYPEPHP_SYS_NANOSLEEP:
+        return syscall_nanosleep((const user_timespec *) frame->rdi,
+            (user_timespec *) frame->rsi);
     case TYPEPHP_SYS_GETPID:
     case TYPEPHP_SYS_GETTID:
         return (long) foreground_process.pid;

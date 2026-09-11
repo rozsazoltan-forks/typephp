@@ -8,11 +8,15 @@ enum {
     VGA_WIDTH = 80,
     VGA_HEIGHT = 25,
     COM1 = 0x3f8,
+    SERIAL_BUFFER_SIZE = 8192,
 };
 
 static volatile uint16_t *const vga = (volatile uint16_t *) 0xb8000;
 static uint32_t row;
 static uint32_t column;
+static volatile uint32_t serial_read_head;
+static volatile uint32_t serial_read_tail;
+static volatile uint8_t serial_read_buffer[SERIAL_BUFFER_SIZE];
 
 static inline void outb(uint16_t port, uint8_t value)
 {
@@ -37,6 +41,25 @@ static void serial_init(void)
     outb(COM1 + 4, 0x0b);
 }
 
+void typephp_os_console_enable_interrupts(void)
+{
+    /* Received-data-available interrupt. MCR.OUT2 was enabled by serial_init
+     * and routes the UART interrupt to the legacy PIC's IRQ4 input. */
+    outb(COM1 + 1, 0x01);
+}
+
+void typephp_os_console_interrupt(void)
+{
+    while ((inb(COM1 + 5) & 0x01u) != 0) {
+        const uint8_t value = inb(COM1);
+        const uint32_t next = (serial_read_head + 1u) % SERIAL_BUFFER_SIZE;
+        if (next != serial_read_tail) {
+            serial_read_buffer[serial_read_head] = value;
+            serial_read_head = next;
+        }
+    }
+}
+
 static void serial_put(uint8_t value)
 {
     while ((inb(COM1 + 5) & 0x20u) == 0) {
@@ -50,14 +73,18 @@ long typephp_os_console_read(void *buffer, unsigned long size)
     if (output == 0 || size == 0) {
         return 0;
     }
-    /* COM1 is the standard input device for the headless QEMU target. Keep
-     * this synchronous: the process model intentionally has one foreground
-     * task and no scheduler yet. */
-    while ((inb(COM1 + 5) & 0x01u) == 0) {
-        __asm__ volatile("pause");
+    /* The system remains single-task, but a blocking read can still halt the
+     * CPU until IRQ4 supplies input. STI followed immediately by HLT avoids
+     * the empty-buffer/check-to-sleep lost-wakeup race on x86. */
+    for (;;) {
+        __asm__ volatile("cli" : : : "memory");
+        if (serial_read_tail != serial_read_head) {
+            output[0] = serial_read_buffer[serial_read_tail];
+            serial_read_tail = (serial_read_tail + 1u) % SERIAL_BUFFER_SIZE;
+            return 1;
+        }
+        __asm__ volatile("sti; hlt; cli" : : : "memory");
     }
-    output[0] = inb(COM1);
-    return 1;
 }
 
 static void vga_scroll(void)

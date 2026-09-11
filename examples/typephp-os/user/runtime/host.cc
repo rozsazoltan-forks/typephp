@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <sys/syscall.h>
+#include <time.h>
 #include <unistd.h>
 
 extern "C" int typephp_nano_project_main();
@@ -54,17 +55,23 @@ extern "C" void php_nano_host_system_time(
 
 extern "C" std::uint64_t php_nano_host_monotonic_nanoseconds()
 {
-    return static_cast<std::uint64_t>(syscall(SYS_time, nullptr))
-        * UINT64_C(1000000000);
+    timespec value{};
+    if (clock_gettime(CLOCK_MONOTONIC, &value) != 0) {
+        typephp_os_panic("unable to read the monotonic clock");
+    }
+    return static_cast<std::uint64_t>(value.tv_sec) * UINT64_C(1000000000)
+        + static_cast<std::uint64_t>(value.tv_nsec);
 }
 
 extern "C" void php_nano_host_sleep(
     std::uint64_t seconds, std::uint32_t nanoseconds)
 {
-    const auto now = static_cast<std::uint64_t>(syscall(SYS_time, nullptr));
-    const auto deadline = now + seconds + (nanoseconds != 0 ? 1u : 0u);
-    while (static_cast<std::uint64_t>(syscall(SYS_time, nullptr)) < deadline) {
-        __asm__ volatile("pause");
+    const timespec duration{
+        static_cast<time_t>(seconds),
+        static_cast<long>(nanoseconds),
+    };
+    if (nanosleep(&duration, nullptr) != 0) {
+        typephp_os_panic("unable to sleep");
     }
 }
 

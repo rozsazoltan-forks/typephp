@@ -98,14 +98,15 @@ behavior.
    does not yet replace the working userspace commands.
    Single-task identity calls report PID/TID 1 for the resident shell, 2 for
    its synchronous foreground command, and root UID/GID. Linux-compatible
-   wall/monotonic clock structures are exposed at the current one-second RTC
-   resolution. The `systest` ELF exercises this complete syscall slice.
+   wall-clock time uses the RTC while monotonic time and blocking sleeps use a
+   100 Hz PIT. The `systest` ELF exercises this complete syscall slice.
    Syscall evolution follows the glibc migration rules in `user/README.md`.
 7. **Native Class memory.** Exercise Wren GC through Zend MM and verify tracing
    of PHPX fields under sustained allocation.
-8. **Kernel services.** Interrupt-driven timer and keyboard, higher-level VM
-   region management, Zend-chunk reclamation, and a capability-oriented native
-   API.
+8. **Kernel services.** The legacy PIC, a 100 Hz PIT clock, interrupt-driven
+   COM1 input, blocking console reads, and blocking `nanosleep` are implemented.
+   Higher-level VM region management, Zend-chunk reclamation, and a
+   capability-oriented native API remain future work.
 9. **Packaging and CI.** Automate the two-stage ELF32/ELF64 build and QEMU boot
    smoke test in GitHub Actions.
 

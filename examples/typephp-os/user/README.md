@@ -46,7 +46,7 @@ logic, while C/C++ is limited to the syscall or PHPX boundary.
 The current shared userspace runtime provides `syscall`, `read`, `write`, `openat`,
 `open`, `close`, `lseek`, `getcwd`, `chdir`, `mkdir`, `rmdir`, `unlink`,
 `rename`, `stat`, `lstat`, `fstat`, `access`, `fsync`, `fdatasync`, `truncate`,
-`ftruncate`, `time`, `gettimeofday`, `clock_gettime`, `clock_getres`, `uname`,
+`ftruncate`, `time`, `gettimeofday`, `clock_gettime`, `clock_getres`, `nanosleep`, `sleep`, `uname`,
 `getpid`, `getppid`, `gettid`, the root UID/GID queries, `brk`, `sbrk`, `mmap`,
 `mprotect`, `munmap`, `opendir`, `fdopendir`, `readdir`, `rewinddir`,
 `closedir`, `dirfd`, the `F_GETFD`/`F_SETFD`/`F_GETFL`/`F_SETFL` subset of
@@ -85,7 +85,8 @@ The kernel additionally accepts Linux x86-64 `newfstatat`, `faccessat`,
 metadata uses the Linux x86-64 144-byte `struct stat`
 layout. FAT16 currently has no owners, ACLs, symlinks, executable file bit, or
 sub-second timestamps: UID/GID are always root, ordinary files are `0666`,
-directories are `0777`, and clock resolution is one second.
+directories are `0777`. Wall-clock values currently retain one-second RTC
+resolution; the monotonic clock and sleeping use the 100 Hz PIT.
 
 `rename()` currently accepts only source and destination paths with the same
 parent directory and does not replace an existing entry. Its transport uses a
