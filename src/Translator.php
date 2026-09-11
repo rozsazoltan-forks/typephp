@@ -2618,6 +2618,7 @@ CODE;
                 'std/math.h',
                 'std/json.h',
                 'std/datetime.h',
+                'std/fs.h',
                 'std/hash.h',
                 'std/misc.h',
                 'std/random.h',
