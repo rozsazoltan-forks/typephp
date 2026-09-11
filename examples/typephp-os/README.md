@@ -15,6 +15,19 @@ The architectural rules and staged plan are maintained in
 
 ## Architecture
 
+The source tree is split by execution role:
+
+```text
+boot/                 Make-built startup assembly and linker scripts
+kernel/*.php          TypePHP kernel implementation
+kernel/core/          Native kernel implementation compiled by tpc
+kernel/core/abi/      Freestanding C/POSIX and C++ compatibility boundary
+user/                 Independently built Ring-3 programs and bootstrap libc
+```
+
+Additional TypePHP kernel files stay directly under `kernel/` until a concrete
+subsystem boundary justifies another directory.
+
 There is no kernel-specific tpc mode or reduced PHP Nano profile. The 64-bit
 payload is compiled with the normal command:
 
@@ -23,7 +36,7 @@ payload is compiled with the normal command:
 ```
 
 This composes the complete php-nano and PHPX source manifests. The TypePHP OS
-project owns the freestanding boundary under `freestanding/abi`: implemented
+project owns the freestanding boundary under `kernel/core/abi`: implemented
 C/POSIX and C++ ABI functions live there, while APIs required for linking but
 not implemented by the kernel are exported as panic stubs. Consequently an
 unsupported operation fails immediately with its ABI symbol instead of
@@ -79,11 +92,14 @@ Run the automated serial-output smoke test with:
 make test
 ```
 
-The Makefile compiles the 32-bit Multiboot bootstrap externally because its
-`-m32` ABI cannot participate in the 64-bit payload link. It also builds the
+The Makefile compiles the startup sources under `boot/` directly. The 32-bit
+Multiboot bootstrap cannot participate in the 64-bit payload link; the 64-bit
+entry object is injected into tpc's final link through the generic `objects`
+setting. The Makefile also builds the
 deliberately small freestanding C userspace ELF files and installs them into
 the FAT16 image with `mcopy`. All ordinary
-64-bit `.c`, `.cc`, and `.S` files remain in `project.yml` and use tpc's generic
+kernel `.php`, `.c`, `.cc`, and `.S` files live under `kernel/`, remain in
+`project.yml`, and use tpc's generic
 `c-flags`, `cxx-flags`, and `asm-flags`. The user executables are not linked
 into the kernel payload. The architecture-changing bootstrap is combined
 during the final packaging link.

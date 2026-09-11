@@ -1,27 +1,15 @@
 name: typephp_os
 mode: bin
 sources:
-  - src
-  - freestanding/kernel64-entry.S
-  - freestanding/process-entry.S
-  - freestanding/kernel.c
-  - freestanding/memory.c
-  - freestanding/vm.c
-  - freestanding/process.c
-  - freestanding/time.c
-  - freestanding/ata.c
-  - freestanding/zend-allocator.c
-  - freestanding/bridge.cc
-  - freestanding/filesystem_abi.cc
-  - freestanding/abi/libc.c
-  - freestanding/abi/cxx.cpp
-  - freestanding/abi/unimplemented.S
+  - kernel
   - thirdparty/openlibm/src
+objects:
+  - build/objects/kernel64-entry.o
 build-dir: build/generated
 output: build/kernel64.elf
 cxx-std: c++17
 include-paths:
-  - freestanding/abi
+  - kernel/core/abi
   - thirdparty/openlibm/include
   - thirdparty/openlibm/src
   - thirdparty/openlibm/amd64
@@ -64,5 +52,5 @@ ld-flags:
   - -no-pie
   - -Wl,-m,elf_x86_64
   - -Wl,--build-id=none
-  - -Wl,-T,examples/typephp-os/freestanding/kernel64.ld
+  - -Wl,-T,examples/typephp-os/boot/kernel64.ld
   - -lgcc

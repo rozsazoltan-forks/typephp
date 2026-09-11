@@ -16,11 +16,12 @@ behavior.
 - Cross-project changes must use generally useful portability contracts such
   as `PHP_NANO_NO_LIBC`, `PHPX_NO_EXCEPTION`, and `PHPX_NO_RTTI`; product-specific
   conditionals are not allowed in PHP Nano or PHPX.
-- Ordinary same-ABI source files and flags belong in `project.yml`. Translation
-  units that require incompatible per-file options are built by Make and may
-  be linked through tpc's generic `objects` facility when their ABI matches.
-  Architecture packaging and ELF/binary conversion happen after tpc emits the
-  64-bit ELF.
+- Ordinary kernel sources live under `kernel/`; the TypePHP entry files are at
+  that directory's top level and the native implementation is under
+  `kernel/core/`. Same-ABI source files and flags belong in `project.yml`.
+  Startup sources live under `boot/` and are built by Make; compatible objects
+  may be linked through tpc's generic `objects` facility. Architecture
+  packaging and ELF/binary conversion happen after tpc emits the 64-bit ELF.
 - Every completed milestone must pass the serial-output QEMU smoke test and
   leave the 64-bit payload with no undefined symbols.
 
