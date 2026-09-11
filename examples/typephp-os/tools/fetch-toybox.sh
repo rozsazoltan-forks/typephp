@@ -19,7 +19,7 @@ archive="${temporary}/toybox.tar.gz"
 staging="${temporary}/installed"
 
 echo "Downloading Toybox ${version} (${commit})"
-curl -L --fail --retry 3 -o "${archive}" \
+curl -L --fail --retry 3 --silent --show-error -o "${archive}" \
     "https://landley.net/toybox/downloads/toybox-${version}.tar.gz"
 printf '%s  %s\n' "${archive_sha256}" "${archive}" | sha256sum -c -
 mkdir -p "${staging}"

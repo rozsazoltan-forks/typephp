@@ -11,9 +11,6 @@ USER_COMMANDS := ls cd date uname pwd cat echo write touch mkdir rm rmdir mv fau
 USER_PROGRAMS := sh $(USER_COMMANDS)
 USER_SH_ELF := $(BUILD)/sh.elf
 USER_COMMAND_ELFS := $(addprefix $(BUILD)/,$(addsuffix .elf,$(USER_COMMANDS)))
-USER_CRT0_OBJECT := $(OBJECT_DIR)/user-crt0.o
-USER_LIBC_OBJECTS := $(OBJECT_DIR)/user-libc.o $(OBJECT_DIR)/user-dirent.o \
-	$(OBJECT_DIR)/user-fcntl.o $(OBJECT_DIR)/user-syscall.o
 NANO_USER_ELF := $(BUILD)/tnhello.elf
 TYPEPHP_OS_LIBRARY := $(BUILD)/libtypephp-os.a
 TYPEPHP_OS_LIBRARY_OBJECT_DIR := $(BUILD)/libtypephp-os
@@ -24,7 +21,8 @@ PHPX_DIR := $(or $(realpath ../../vendor/swoole/phpx),$(realpath ../../../phpx))
 OPENLIBM_SOURCES := $(shell sed -n 's|^\(.*\.c\)$$|thirdparty/openlibm/\1|p' tools/openlibm-files.txt)
 COMPILER_RT_SOURCES := $(shell awk '$$2 ~ /\.c$$/ { print "thirdparty/compiler-rt/" $$2 }' tools/compiler-rt-builtins-files.sha256)
 COMPILER_RT_OBJECTS := $(patsubst thirdparty/compiler-rt/lib/builtins/%.c,$(COMPILER_RT_OBJECT_DIR)/%.o,$(COMPILER_RT_SOURCES))
-TYPEPHP_OS_LIBRARY_C_SOURCES := user/runtime/posix.c user/dirent.c user/fcntl.c \
+TYPEPHP_OS_LIBRARY_C_SOURCES := user/runtime/posix.c user/runtime/dirent.c \
+	user/runtime/fcntl.c kernel/core/abi/error.c kernel/core/abi/string.c \
 	kernel/core/abi/libc.c $(OPENLIBM_SOURCES)
 TYPEPHP_OS_LIBRARY_CXX_SOURCES := user/runtime/host.cc kernel/core/abi/cxx.cpp
 TYPEPHP_OS_LIBRARY_ASM_SOURCES := user/runtime/crt0.S user/runtime/syscall.S \
@@ -45,7 +43,8 @@ KERNEL64_BOOTFLAGS := -m64 -O2 -ffreestanding -fno-builtin -fno-pic -fno-pie \
 USER_CFLAGS := -m64 -O2 -ffreestanding -fno-builtin -fno-pic -fno-pie \
 	-fno-stack-protector -mno-red-zone -Wall -Wextra -Iuser/include -Ikernel/core/abi
 USER_HEADERS := $(shell find user/include -type f)
-USER_LDFLAGS := -m elf_x86_64 -nostdlib -static -T user/linker.ld
+USER_LDFLAGS := -m elf_x86_64 -nostdlib -static --undefined=_start \
+	-T user/runtime/linker.ld
 TYPEPHP_OS_RUNTIME_DEFINES := -DTYPEPHP_NATIVE=1 -DPHP_NANO=1 -DPHPX_NANO=1 \
 	-D_POSIX_C_SOURCE=200809L -DTYPEPHP_NO_MAIN=1 -DPHPX_NO_EXCEPTION=1 \
 	-DPHPX_NO_RTTI=1 -DPHP_NANO_NO_LIBC=1 -DHAVE_SYS_UTSNAME_H=1 \
@@ -120,21 +119,6 @@ $(KERNEL64_ENTRY_OBJECT): boot/kernel64-entry.S | $(OBJECT_DIR)
 $(OBJECT_DIR)/%.o: user/%.c $(USER_HEADERS) kernel/core/abi/typephp_os_syscall.h | $(OBJECT_DIR)
 	gcc $(USER_CFLAGS) -c $< -o $@
 
-$(USER_CRT0_OBJECT): user/crt0.S kernel/core/abi/typephp_os_syscall.h | $(OBJECT_DIR)
-	gcc $(USER_CFLAGS) -c $< -o $@
-
-$(OBJECT_DIR)/user-libc.o: user/libc.c $(USER_HEADERS) kernel/core/abi/typephp_os_syscall.h | $(OBJECT_DIR)
-	gcc $(USER_CFLAGS) -c $< -o $@
-
-$(OBJECT_DIR)/user-dirent.o: user/dirent.c $(USER_HEADERS) kernel/core/abi/typephp_os_syscall.h | $(OBJECT_DIR)
-	gcc $(USER_CFLAGS) -c $< -o $@
-
-$(OBJECT_DIR)/user-fcntl.o: user/fcntl.c $(USER_HEADERS) kernel/core/abi/typephp_os_syscall.h | $(OBJECT_DIR)
-	gcc $(USER_CFLAGS) -c $< -o $@
-
-$(OBJECT_DIR)/user-syscall.o: user/syscall.S kernel/core/abi/typephp_os_syscall.h | $(OBJECT_DIR)
-	gcc $(USER_CFLAGS) -c $< -o $@
-
 $(OPENLIBM_SOURCES): | thirdparty
 
 $(COMPILER_RT_SOURCES): | thirdparty
@@ -168,11 +152,13 @@ $(TYPEPHP_OS_LIBRARY): $(TYPEPHP_OS_LIBRARY_OBJECTS) | $(BUILD)
 $(NANO_USER_ELF): $(NANO_USER_SOURCES) | thirdparty $(BUILD)
 	cd ../.. && ./bin/tpc.php --nano examples/typephp-os/user/nano/hello.yml
 
-$(USER_SH_ELF): $(OBJECT_DIR)/sh.o $(USER_CRT0_OBJECT) $(USER_LIBC_OBJECTS) $(COMPILER_RT_LIBRARY) user/linker.ld Makefile | $(BUILD)
-	ld $(USER_LDFLAGS) --defsym USER_BASE=0x40000000 -o $@ $(filter %.o,$^) $(COMPILER_RT_LIBRARY)
+$(USER_SH_ELF): $(OBJECT_DIR)/sh.o $(TYPEPHP_OS_LIBRARY) $(COMPILER_RT_LIBRARY) user/runtime/linker.ld Makefile | $(BUILD)
+	ld $(USER_LDFLAGS) --defsym USER_BASE=0x40000000 -o $@ \
+		$(OBJECT_DIR)/sh.o $(TYPEPHP_OS_LIBRARY) $(COMPILER_RT_LIBRARY)
 
-$(USER_COMMAND_ELFS): $(BUILD)/%.elf: $(OBJECT_DIR)/%.o $(USER_CRT0_OBJECT) $(USER_LIBC_OBJECTS) $(COMPILER_RT_LIBRARY) user/linker.ld Makefile | $(BUILD)
-	ld $(USER_LDFLAGS) --defsym USER_BASE=0x41000000 -o $@ $(filter %.o,$^) $(COMPILER_RT_LIBRARY)
+$(USER_COMMAND_ELFS): $(BUILD)/%.elf: $(OBJECT_DIR)/%.o $(TYPEPHP_OS_LIBRARY) $(COMPILER_RT_LIBRARY) user/runtime/linker.ld Makefile | $(BUILD)
+	ld $(USER_LDFLAGS) --defsym USER_BASE=0x41000000 -o $@ \
+		$(OBJECT_DIR)/$*.o $(TYPEPHP_OS_LIBRARY) $(COMPILER_RT_LIBRARY)
 
 $(KERNEL): payload
 	objcopy -O binary $(PAYLOAD_ELF) $(PAYLOAD_BIN)

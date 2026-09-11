@@ -25,12 +25,15 @@ The following rules are normative for this directory:
    it is not a public POSIX process-creation API.
 6. New kernel services should first consider the remaining interfaces needed
    by a static libc and PHP Nano: memory mapping, files and directories,
-   clocks, TLS, terminal I/O, and single-task lifecycle. Socket support also
-   remains out of scope.
-7. Freestanding test programs remain libc-free only as a bootstrap constraint;
-   it is not the final userspace programming model.
+   clocks, TLS, and single-task lifecycle. Socket support remains out of
+   scope. `ioctl` and `termios` are also intentionally deferred; basic console
+   `read`/`write` is the supported terminal contract.
+7. Freestanding test programs remain hosted-libc-free only as a bootstrap
+   constraint; it is not the final userspace programming model. C and TypePHP
+   programs must link the same `libtypephp-os.a` platform runtime instead of
+   maintaining private startup or libc copies.
 
-The current bootstrap libc provides `syscall`, `read`, `write`, `openat`,
+The current shared userspace runtime provides `syscall`, `read`, `write`, `openat`,
 `open`, `close`, `lseek`, `getcwd`, `chdir`, `mkdir`, `rmdir`, `unlink`,
 `rename`, `stat`, `lstat`, `fstat`, `access`, `fsync`, `fdatasync`, `truncate`,
 `ftruncate`, `time`, `gettimeofday`, `clock_gettime`, `clock_getres`, `uname`,
@@ -48,8 +51,8 @@ project-specific variants of standard functions.
 commands, it composes the complete PHP Nano and PHPX source manifests into an
 independent ELF64 executable. Shared startup, host, POSIX, libc/C++ ABI, and
 math support live under `runtime/` and are built once as `libtypephp-os.a`.
-Each TypePHP userspace project links that archive with `-ltypephp-os` instead
-of recompiling the platform layer. The shared crt0 accepts the same Linux-style
+Both the C commands and every TypePHP userspace project link that archive with
+`-ltypephp-os` instead of recompiling the platform layer. The shared crt0 accepts the same Linux-style
 initial stack, so the TypePHP entry receives the real command-line `argc` and
 `argv`. The standard extension's `php_uname()` remains implemented in the
 upstream `info.c`; the local `uname()` ABI reports `TypePHP-OS`. APIs whose

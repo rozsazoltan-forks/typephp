@@ -36,7 +36,7 @@ rm -rf "${mlibc_build}" "${mlibc_sysroot}"
     -Dlinux_option=disabled \
     -Dglibc_option=disabled \
     -Dbsd_option=disabled
-DESTDIR="${mlibc_sysroot}" "${meson_command}" install -C "${mlibc_build}"
+DESTDIR="${mlibc_sysroot}" "${meson_command}" install --quiet -C "${mlibc_build}"
 compiler_headers=$(gcc -print-file-name=include)
 gcc -std=c11 -ffreestanding -fsyntax-only -nostdinc \
     -isystem "${mlibc_sysroot}/usr/include" \

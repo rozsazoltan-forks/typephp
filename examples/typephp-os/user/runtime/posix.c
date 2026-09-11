@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -38,12 +39,26 @@ off_t lseek(int fd, off_t offset, int whence)
 
 int openat(int directory_fd, const char *path, int flags, ...)
 {
-    return (int) syscall(TYPEPHP_SYS_OPENAT, directory_fd, path, flags, 0);
+    int mode = 0;
+    if ((flags & O_CREAT) != 0) {
+        va_list arguments;
+        va_start(arguments, flags);
+        mode = va_arg(arguments, int);
+        va_end(arguments);
+    }
+    return (int) syscall(TYPEPHP_SYS_OPENAT, directory_fd, path, flags, mode);
 }
 
 int open(const char *path, int flags, ...)
 {
-    return openat(AT_FDCWD, path, flags, 0);
+    int mode = 0;
+    if ((flags & O_CREAT) != 0) {
+        va_list arguments;
+        va_start(arguments, flags);
+        mode = va_arg(arguments, int);
+        va_end(arguments);
+    }
+    return openat(AT_FDCWD, path, flags, mode);
 }
 
 int chdir(const char *path)
@@ -64,6 +79,11 @@ int unlink(const char *path)
 int rmdir(const char *path)
 {
     return (int) syscall(TYPEPHP_SYS_RMDIR, path);
+}
+
+char *getcwd(char *buffer, size_t size)
+{
+    return syscall(TYPEPHP_SYS_GETCWD, buffer, size) < 0 ? NULL : buffer;
 }
 
 int brk(void *address)
@@ -236,4 +256,12 @@ gid_t getgid(void)
 gid_t getegid(void)
 {
     return (gid_t) syscall(TYPEPHP_SYS_GETEGID);
+}
+
+void _exit(int status)
+{
+    (void) syscall(TYPEPHP_SYS_EXIT_GROUP, status);
+    for (;;) {
+        __asm__ volatile("pause");
+    }
 }

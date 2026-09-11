@@ -1,7 +1,8 @@
 #ifndef TYPEPHP_OS_USER_ERRNO_H
 #define TYPEPHP_OS_USER_ERRNO_H
 
-extern int errno;
+int *__errno_location(void);
+#define errno (*__errno_location())
 
 #define ENOENT 2
 #define EIO 5

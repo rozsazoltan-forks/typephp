@@ -20,7 +20,7 @@ source_dir="${temporary}/openlibm-${version}"
 staging="${temporary}/installed"
 
 echo "Downloading OpenLibm v${version}"
-curl -L --fail --retry 3 \
+curl -L --fail --retry 3 --silent --show-error \
     -o "${archive}" \
     "https://github.com/JuliaMath/openlibm/archive/refs/tags/v${version}.tar.gz"
 echo "${archive_sha256}  ${archive}" | sha256sum -c -

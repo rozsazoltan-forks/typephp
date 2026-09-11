@@ -28,6 +28,10 @@ behavior.
   `wait`, pipes, threads, scheduling signals, and job control will not be
   implemented. The shell may only launch one synchronous foreground ELF
   through the private TypePHP-OS service.
+- `ioctl` and `termios` are outside the current scope. Third-party programs
+  must not drive implementation of these low-priority terminal interfaces;
+  they can be adopted only after their selected build no longer requires the
+  interfaces or another generally useful subsystem justifies them.
 
 ## Milestones
 
@@ -81,9 +85,15 @@ behavior.
    a Linux-style initial stack. A full PHP Nano/PHPX executable is now produced
    by the ordinary tpc pipeline and runs in Ring 3 with working TypePHP
    `argc/argv`; standard `php_uname()` reaches the userspace `uname()` ABI and
-   reports TypePHP-OS. Shared TypePHP userspace support is compiled once into
-   `libtypephp-os.a`, allowing multiple tpc projects to link the same runtime
-   platform archive. Unavailable ABI functions remain explicit panic stubs.
+   reports TypePHP-OS. All shared userspace startup, syscall, POSIX/libc,
+   C++ ABI, and math support is compiled once into `libtypephp-os.a`; both the
+   C commands and multiple tpc projects link the same platform archive.
+   Unavailable ABI functions remain explicit panic stubs.
+   Selected upstream LLVM compiler-rt builtins now provide 128-bit integer
+   helper symbols. mlibc 7.0 and a five-applet Toybox build are pinned as
+   porting probes; neither replaces the working userspace runtime yet because
+   mlibc exceeds the C++17 baseline and Toybox's common runtime still imports
+   `ioctl`.
    Single-task identity calls report PID/TID 1 for the resident shell, 2 for
    its synchronous foreground command, and root UID/GID. Linux-compatible
    wall/monotonic clock structures are exposed at the current one-second RTC

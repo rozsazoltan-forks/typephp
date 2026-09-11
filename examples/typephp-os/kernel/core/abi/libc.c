@@ -14,6 +14,7 @@
 
 #include "typephp_os_abi.h"
 
+#include <errno.h>
 #include <stdarg.h>
 #include <locale.h>
 #include <setjmp.h>
@@ -35,7 +36,6 @@ enum { TYPEPHP_OS_ALIGNED_BLOCK_CAPACITY = 64 };
 
 static uintptr_t arena_cursor;
 static uintptr_t arena_end;
-static int typephp_os_errno;
 static typephp_os_aligned_block aligned_blocks[TYPEPHP_OS_ALIGNED_BLOCK_CAPACITY];
 
 /* TypePHP OS has no hosted stdio object. These opaque values only satisfy
@@ -61,11 +61,6 @@ __attribute__((weak)) unsigned int getuid(void)
 __attribute__((weak)) unsigned int getgid(void)
 {
     return 0;
-}
-
-int *__errno_location(void)
-{
-    return &typephp_os_errno;
 }
 
 void __assert_fail(
@@ -193,15 +188,6 @@ int memcmp(const void *left, const void *right, size_t size)
         ++b;
     }
     return 0;
-}
-
-size_t strlen(const char *string)
-{
-    const char *end = string;
-    while (*end != '\0') {
-        ++end;
-    }
-    return (size_t) (end - string);
 }
 
 char *strdup(const char *string)
@@ -417,10 +403,10 @@ char *setlocale(int category, const char *locale)
     return 0;
 }
 
-char *getcwd(char *buffer, size_t size)
+__attribute__((weak)) char *getcwd(char *buffer, size_t size)
 {
     if (buffer == 0 || size < 2) {
-        typephp_os_errno = 34; /* ERANGE */
+        errno = ERANGE;
         return 0;
     }
     buffer[0] = '/';

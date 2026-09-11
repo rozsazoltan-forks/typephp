@@ -23,7 +23,8 @@ while read -r expected relative; do
     [ -n "${relative}" ] || continue
     destination="${staging}/${relative}"
     mkdir -p "$(dirname -- "${destination}")"
-    curl -L --fail --retry 3 -o "${destination}" "${base_url}/${relative}"
+    curl -L --fail --retry 3 --silent --show-error \
+        -o "${destination}" "${base_url}/${relative}"
     printf '%s  %s\n' "${expected}" "${destination}" | sha256sum -c -
 done < "${manifest}"
 
