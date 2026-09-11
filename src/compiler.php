@@ -111,7 +111,10 @@ function main(int $argc, array $argv): void
     }
 
     // Compile all C++ source files.
-    $objectFiles = $translator->compile($sourceFiles);
+    $objectFiles = [
+        ...$translator->compile($sourceFiles),
+        ...$translator->getProjectObjectFiles(),
+    ];
     // Link all object files to produce the executable.
     $binaryFile = $translator->build($objectFiles);
     // If --run / -r was specified, execute immediately after compilation.

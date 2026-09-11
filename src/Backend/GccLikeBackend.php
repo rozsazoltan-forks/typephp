@@ -106,6 +106,10 @@ abstract class GccLikeBackend extends CompilerBackend
                 . ' -mllvm -wasm-use-legacy-eh=false';
         }
 
+        if (!$includeCppStd && !empty($config['cflags'])) {
+            $cmd .= ' ' . $config['cflags'];
+        }
+
         if (!empty($config['target_platform'])) {
             $cmd .= ' --target=' . $config['target_platform'];
         }
@@ -247,6 +251,9 @@ abstract class GccLikeBackend extends CompilerBackend
         }
 
         $cmd .= $this->buildCompileOptions($options);
+        if (!empty($options['nativeflags'])) {
+            $cmd .= ' ' . $options['nativeflags'];
+        }
 
         return $cmd;
     }

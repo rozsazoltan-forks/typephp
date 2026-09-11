@@ -500,12 +500,16 @@ class CompilerBase implements PropertyAccessContext
     protected int $maxJob = 4;
     protected string $buildMode = self::BUILD_MODE_BIN;
     protected string $cxxFlags = '';
+    protected string $cFlags = '';
+    protected string $asmFlags = '';
     protected string $cxxStd = 'c++17';
     protected string $march = '';            // --march: target CPU instruction set (e.g. native, x86-64-v3)
     protected string $targetPlatform = '';   // --target-platform: cross-compilation target triple (e.g. aarch64-linux-gnu)
     protected string $ldflags = '';
     protected array $linkLibs = [];    // --link-lib / -l: user-specified libraries to link
     protected array $linkPaths = [];   // --link-path / -L: user-specified library search paths
+    /** @var list<string> Precompiled project object files linked into the target. */
+    protected array $projectObjectFiles = [];
     /** @var list<string> Required PHP modules recorded in zend_module_entry.deps. */
     protected array $extensionDependencies = [];
     protected bool $debug = false;

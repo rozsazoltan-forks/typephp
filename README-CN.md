@@ -304,6 +304,12 @@ sources:
   - path: src/windows
     if: PHP_OS_FAMILY == "Windows"
 
+# 由项目自身的原生构建流程预编译。
+objects:
+  - native/build/startup.o
+  - path: native/build/platform.obj
+    if: PHP_OS_FAMILY == "Windows"
+
 ignore:
   - src/experimental
 
@@ -327,6 +333,13 @@ ext-deps:
 `PHP_VERSION`、`PHP_VERSION_ID` 和 `PHP_OS_FAMILY`。命令行参数优先于 YAML
 中的同名配置。原生链接依赖应写入 `link-libs`；`ext-deps` 会生成
 `ZEND_MOD_REQUIRED`，缺少所需 PHP 扩展时由 Zend 拒绝加载模块。
+通用的 `objects` 列表会把已有 `.o`/`.obj` 文件直接加入链接步骤。TypePHP
+不会重新编译这些文件；原生编译器、目标架构、编译参数和增量构建均由项目负责。
+使用目标通用参数的原生文件仍应放入 `sources`；仅当某个编译单元需要不同参数且
+生成的对象与最终目标 ABI 兼容时，才应预编译后放入 `objects`。例如 `-m32`
+生成的对象不能直接链接到 64 位目标，必须由项目在 tpc 产出 ELF 后另行封装。
+项目级 `cxx-flags`、`c-flags`、`asm-flags` 和 `ld-flags` 分别应用于
+C++、C、汇编和链接命令。
 
 构建目录保存生成的 C++、依赖对象和预编译头缓存。复用同一个构建目录可以显著加快
 增量构建；仅在确实需要重编 PHPX 公共对象时使用 `--force`。

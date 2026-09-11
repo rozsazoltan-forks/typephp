@@ -102,6 +102,7 @@ class BackendTest extends TestCase
             'user_defines' => ['FEATURE_X=1'],
             'lto' => true,
             'is_zts' => true,
+            'cflags' => '/experimental:c11atomics',
         ]);
 
         $this->assertStringContainsString('/TC', $cmd);
@@ -111,6 +112,7 @@ class BackendTest extends TestCase
         $this->assertStringContainsString('/DFEATURE_X=1', $cmd);
         $this->assertStringContainsString('/GL', $cmd);
         $this->assertStringContainsString('/DZTS', $cmd);
+        $this->assertStringContainsString('/experimental:c11atomics', $cmd);
         $this->assertStringNotContainsString('/EHsc', $cmd);
         $this->assertStringNotContainsString('/std:', $cmd);
     }
@@ -214,6 +216,7 @@ class BackendTest extends TestCase
             'march' => 'native',
             'target_platform' => 'aarch64-linux-gnu',
             'build_mode' => 'ext',
+            'cflags' => '-ffreestanding -fno-builtin',
         ]);
 
         $this->assertStringContainsString('-fsanitize=address', $cmd);
@@ -224,6 +227,19 @@ class BackendTest extends TestCase
         $this->assertStringContainsString('-march=native', $cmd);
         $this->assertStringContainsString('--target=aarch64-linux-gnu', $cmd);
         $this->assertStringContainsString('-fPIC', $cmd);
+        $this->assertStringContainsString('-ffreestanding -fno-builtin', $cmd);
+    }
+
+    public function testGccBuildAssemblerCommandUsesNativeFlags(): void
+    {
+        $compiler = new Gcc(new Linux());
+
+        $cmd = $compiler->buildNativeCompileCommand('entry.S', 'entry.o', [
+            'nativeflags' => '-m64 -mno-red-zone',
+        ], 'assembler');
+
+        $this->assertStringContainsString('-x assembler', $cmd);
+        $this->assertStringContainsString('-m64 -mno-red-zone', $cmd);
     }
 
     public function testGccBuildLinkCommandIncludesPlatformPathsOptionsAndLibraries(): void

@@ -1,0 +1,57 @@
+name: typephp_os
+mode: bin
+sources:
+  - src
+  - freestanding/kernel64-entry.S
+  - freestanding/kernel.c
+  - freestanding/memory.c
+  - freestanding/time.c
+  - freestanding/zend-allocator.c
+  - freestanding/bridge.cc
+  - freestanding/abi/libc.c
+  - freestanding/abi/cxx.cpp
+  - freestanding/abi/unimplemented.S
+build-dir: build/generated
+output: build/kernel64.elf
+cxx-std: c++17
+include-paths:
+  - freestanding/abi
+defines:
+  - TYPEPHP_NO_MAIN=1
+  - PHPX_NO_EXCEPTION=1
+  - PHPX_NO_RTTI=1
+  - PHP_NANO_NO_LIBC=1
+  - __NO_CTYPE=1
+  - ZEND_MM_ERROR=0
+  - ZEND_MM_CUSTOM=0
+cxx-flags:
+  - -ffreestanding
+  - -fno-builtin
+  - -fno-stack-protector
+  - -fno-pic
+  - -fno-pie
+  - -m64
+  - -mno-red-zone
+  - -mcmodel=small
+  - -fno-rtti
+  - -fno-threadsafe-statics
+c-flags:
+  - -ffreestanding
+  - -fno-builtin
+  - -fno-stack-protector
+  - -fno-pic
+  - -fno-pie
+  - -m64
+  - -mno-red-zone
+  - -mcmodel=small
+asm-flags:
+  - -m64
+  - -mno-red-zone
+  - -mcmodel=small
+ld-flags:
+  - -nostdlib
+  - -no-pie
+  - -Wl,-m,elf_x86_64
+  - -Wl,--build-id=none
+  - -Wl,-T,examples/typephp-os/freestanding/kernel64.ld
+  - -lgcc

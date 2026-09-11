@@ -776,6 +776,37 @@ YAML, 'myproject.yml', 'nested/config');
         $this->assertSame([$projectDir . '/libs'], $this->compiler->getLinkPaths());
         $this->assertSame($projectDir . '/bin', $this->getPropertyValue('outputDir'));
         $this->assertSame('my_app', $this->getPropertyValue('targetName'));
+        $this->assertSame($projectDir . '/bin/my-app', $this->invokeMethod('getTargetFileName'));
+    }
+
+    public function testParseProjectYamlAddsPrecompiledObjectsAsGenericLinkInputs(): void
+    {
+        $projectFile = $this->createProjectFile(<<<'YAML'
+sources:
+  - main.php
+objects:
+  - build/startup.o
+  - path: build/platform.obj
+    if: PHP_OS_FAMILY == "Linux"
+  - path: build/windows.obj
+    if: PHP_OS_FAMILY == "Windows"
+cxx-flags: [-fno-exceptions, -fno-rtti]
+c-flags: -ffreestanding -fno-builtin
+asm-flags:
+  - -m64
+  - -mno-red-zone
+YAML, 'objects.yml', 'native-objects');
+
+        $this->invokeMethod('parseProjectYaml', $projectFile);
+
+        $projectDir = dirname($projectFile);
+        $this->assertSame([
+            $projectDir . '/build/startup.o',
+            $projectDir . '/build/platform.obj',
+        ], $this->compiler->getProjectObjectFiles());
+        $this->assertSame('-fno-exceptions -fno-rtti', $this->getPropertyValue('cxxFlags'));
+        $this->assertSame('-ffreestanding -fno-builtin', $this->getPropertyValue('cFlags'));
+        $this->assertSame('-m64 -mno-red-zone', $this->getPropertyValue('asmFlags'));
     }
 
     public function testCliOutputOverridesYamlOutputOnlyWhenCommandLineArgumentsAreApplied(): void

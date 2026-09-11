@@ -128,6 +128,7 @@ trait SourcePipelineTrait
         // Apply command-line arguments after all configuration is loaded (so they
         // take the highest precedence)
         $this->applyCommandLineArguments();
+        $this->validateProjectObjectFiles();
 
         // The generated public import stub is an output artifact, not an input
         // of the library that produced it. Exclude a previous build's copy when

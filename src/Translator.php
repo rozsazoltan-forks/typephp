@@ -84,6 +84,8 @@ class Translator extends Preprocessor
     public const string APP_NAME = 'TypePHP Compiler (AOT)';
 
     protected bool $hasExplicitOutput = false;
+    /** Exact output stem; generated C/C++ identifiers still use targetName. */
+    protected ?string $explicitOutputBasename = null;
     protected ?string $explicitOutputExtension = null;
     protected array $sourceDirs = [];
     private ?ProjectYamlLoader $projectYamlLoader = null;
@@ -870,12 +872,13 @@ class Translator extends Preprocessor
         }
 
         $this->hasExplicitOutput = true;
+        $this->explicitOutputBasename = $path;
         $this->setTargetName($path);
     }
 
     protected function getTargetFileName(): string
     {
-        $targetFile = $this->targetName;
+        $targetFile = $this->explicitOutputBasename ?? $this->targetName;
         if ($this->isBuildModeLib() && !$this->isWindows() && !$this->hasExplicitOutput) {
             $targetFile = 'lib' . $targetFile;
         }
@@ -3056,6 +3059,24 @@ CODE;
         $cfg = $this->getProjectYamlLoader()->load($path);
         $projectDir = dirname($path);
 
+        $objects = $cfg['objects'] ?? [];
+        if (!is_array($objects)) {
+            $this->error('`objects` must be an array');
+        }
+        foreach ($objects as $entry) {
+            [$object, $condition] = $this->getProjectYamlLoader()->parseObjectEntry($entry);
+            if ($condition !== null && !$this->evaluateProjectYamlCondition($condition)) {
+                continue;
+            }
+            $object = $this->resolvePath($object, $projectDir, 'Object path');
+            if (!in_array(strtolower(pathinfo($object, PATHINFO_EXTENSION)), ['o', 'obj'], true)) {
+                $this->error("Project object must use the .o or .obj extension: {$object}");
+            }
+            $object = realpath($object) ?: $object;
+            $this->projectObjectFiles[] = $object;
+        }
+        $this->projectObjectFiles = array_values(array_unique($this->projectObjectFiles));
+
         if (array_key_exists('php-version', $cfg) && !$this->climate->arguments->defined('php-version')) {
             $this->setPhpVersion((string) $cfg['php-version']);
         }
@@ -3133,6 +3154,21 @@ CODE;
             } else {
                 $this->cxxFlags = str_replace("\n", ' ', $cxxFlags);
             }
+        }
+
+        // Read C and assembler flags independently. This keeps project-level
+        // native builds generic while allowing each language its own ABI flags.
+        $cFlags = $cfg['c-flags'] ?? null;
+        if (!empty($cFlags)) {
+            $this->cFlags = is_array($cFlags)
+                ? implode(' ', $cFlags)
+                : str_replace("\n", ' ', (string) $cFlags);
+        }
+        $asmFlags = $cfg['asm-flags'] ?? null;
+        if (!empty($asmFlags)) {
+            $this->asmFlags = is_array($asmFlags)
+                ? implode(' ', $asmFlags)
+                : str_replace("\n", ' ', (string) $asmFlags);
         }
 
         // Read cxx-std
@@ -3335,6 +3371,27 @@ CODE;
         }
 
         return $this->filterIgnoredFiles($list);
+    }
+
+    /** @return list<string> */
+    public function getProjectObjectFiles(): array
+    {
+        return $this->projectObjectFiles;
+    }
+
+    protected function validateProjectObjectFiles(): void
+    {
+        if ($this->isDryRun()) {
+            return;
+        }
+        foreach ($this->projectObjectFiles as $object) {
+            if (!is_file($object)) {
+                $this->error(
+                    "Precompiled project object not found: {$object}\n"
+                    . 'Compile project C/C++/assembly sources before invoking tpc.'
+                );
+            }
+        }
     }
 
     /**
@@ -5055,7 +5112,7 @@ CODE;
         // returns with EG(exception) set. Convert back to normal Zend exception
         // propagation at the outermost wrapper.
         $this->indentLevel++;
-        $cppCode = $this->getIndent() . 'try {' . PHP_EOL;
+        $cppCode = $this->getIndent() . 'PHPX_TRY {' . PHP_EOL;
         $this->indentLevel++;
 
         $argCountCheck = $this->genParameterCountCheck(
@@ -5177,7 +5234,8 @@ CODE;
             }
         }
         $this->indentLevel--;
-        $cppCode .= $this->getIndent() . '} catch (zend_object *) {' . PHP_EOL;
+        $cppCode .= $this->getIndent()
+            . '} PHPX_CATCH(zend_object *, typephp_wrapper_exception) {' . PHP_EOL;
         $this->indentLevel++;
         $cppCode .= $this->getIndent() . '/* EG(exception) is already set; return control to ZendVM for frame cleanup. */' . PHP_EOL;
         $this->indentLevel--;
