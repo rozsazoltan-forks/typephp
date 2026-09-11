@@ -865,6 +865,25 @@ YAML);
         $this->assertSame(['/yaml/lib'], $this->compiler->getLinkPaths());
     }
 
+    public function testNanoModePermitsTargetStaticLibraries(): void
+    {
+        $projectFile = $this->createProjectFile(<<<'YAML'
+sources:
+  - main.php
+link-libs:
+  - typephp-os
+link-paths:
+  - build
+YAML);
+
+        $this->invokeMethod('parseProjectYaml', $projectFile);
+        $this->setPropertyValue('nanoMode', true);
+        $this->invokeMethod('applyCommandLineArguments');
+
+        $this->assertSame(['typephp-os'], $this->compiler->getLinkLibs());
+        $this->assertSame([dirname($projectFile) . '/build'], $this->compiler->getLinkPaths());
+    }
+
     public function testParseProjectYamlFiltersIgnoredFilesFromReturnedSources(): void
     {
         $projectFile = $this->createProjectFile(<<<'YAML'

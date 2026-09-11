@@ -10,10 +10,9 @@ enum {
 
 static const uint64_t CHUNK_SIZE = 2ul * 1024ul * 1024ul;
 static const uint64_t PAGE_SIZE = 4096ul;
-/* Keep the kernel payload and the 32-36 MiB user virtual window away from
- * kernel physical allocations. Each user CR3 replaces that part of the
- * shared identity map, so physical kernel data there would become hidden.
- * A future high-half kernel map can remove this temporary reservation. */
+/* Keep the payload, bootstrap data, and early host arena away from the two
+ * physical allocators. User programs occupy a separate high virtual region
+ * in their own CR3, so they no longer overlap this identity-mapped range. */
 static const uint64_t KERNEL_RESERVED_END = 40ul * 1024ul * 1024ul;
 static const uint64_t IDENTITY_MAP_END = 1024ul * 1024ul * 1024ul;
 

@@ -597,9 +597,9 @@ class Translator extends Preprocessor
             if ($this->fullStatic) {
                 $this->error('--nano already composes its runtime sources; --full-static is not applicable');
             }
-            if ($this->linkLibs !== [] || $this->linkPaths !== []) {
-                $this->error('--nano does not permit external link libraries or library search paths');
-            }
+            // Nano applications may consume target-owned static libraries.
+            // The final executable dependency audit remains the authority on
+            // whether those archives introduced an unsupported host import.
         }
     }
 

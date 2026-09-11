@@ -13,6 +13,10 @@
 
 #include <typephp_os_syscall.h>
 
+/* glibc hides this GNU extension when php-nano requests POSIX.1-2008 only. */
+long syscall(long number, ...);
+extern char **environ;
+
 static __attribute__((noreturn)) void unsupported(const char *name)
 {
     static const char prefix[] = "unsupported TypePHP-OS user ABI: ";
@@ -148,17 +152,7 @@ int nanosleep(const struct timespec *duration, struct timespec *remaining)
 
 int uname(struct utsname *value)
 {
-    if (value == NULL) {
-        errno = EFAULT;
-        return -1;
-    }
-    memset(value, 0, sizeof(*value));
-    memcpy(value->sysname, "TypePHP-OS", sizeof("TypePHP-OS"));
-    memcpy(value->nodename, "typephp-os", sizeof("typephp-os"));
-    memcpy(value->release, "0.1", sizeof("0.1"));
-    memcpy(value->version, "TypePHP Nano user mode", sizeof("TypePHP Nano user mode"));
-    memcpy(value->machine, "x86_64", sizeof("x86_64"));
-    return 0;
+    return (int) syscall(TYPEPHP_SYS_UNAME, value);
 }
 
 int isatty(int fd)

@@ -7,10 +7,14 @@
 #include <unistd.h>
 
 extern "C" int typephp_nano_project_main();
+extern "C" char **environ;
 
 namespace {
 
-constexpr std::uintptr_t arena_size = 24u * 1024u * 1024u;
+/* Zend MM acquires aligned 2 MiB chunks while PHPX's native object GC also
+ * keeps process-lifetime metadata. A 48 MiB arena leaves enough headroom for
+ * the complete Nano module startup in the current 160 MiB QEMU machine. */
+constexpr std::uintptr_t arena_size = 48u * 1024u * 1024u;
 
 [[noreturn]] void raw_exit(int status)
 {
@@ -74,6 +78,7 @@ int main(int argc, char **argv)
         typephp_os_panic("unable to allocate the Nano runtime arena");
     }
     typephp_os_memory_init(reinterpret_cast<void *>(begin), arena_size);
+    environ = argv + argc + 1;
     php_nano_set_cli_arguments(argc, argv);
     if (php_nano_startup_composer_extensions() != SUCCESS) {
         typephp_os_panic("unable to start PHP Nano extensions");

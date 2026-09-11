@@ -27,11 +27,24 @@ The following rules are normative for this directory:
 
 The current bootstrap libc provides `syscall`, `read`, `write`, `openat`,
 `open`, `close`, `lseek`, `getcwd`, `chdir`, `mkdir`, `rmdir`, `unlink`,
-`rename`, `time`, `brk`, `sbrk`, `mmap`, `mprotect`, `munmap`, `strlen`,
+`rename`, `time`, `uname`, `brk`, `sbrk`, `mmap`, `mprotect`, `munmap`, `strlen`,
 `strerror`, `perror`, and `_exit` with libc-compatible C signatures. It also
 translates kernel `-errno` results into `-1` plus the single-task userspace
 `errno`. This list is a migration layer, not a reason to create
 project-specific variants of standard functions.
+
+`nano/` contains the first tpc-generated userspace project. Unlike the small C
+commands, it composes the complete PHP Nano and PHPX source manifests into an
+independent ELF64 executable. Shared startup, host, POSIX, libc/C++ ABI, and
+math support live under `runtime/` and are built once as `libtypephp-os.a`.
+Each TypePHP userspace project links that archive with `-ltypephp-os` instead
+of recompiling the platform layer. The shared crt0 accepts the same Linux-style
+initial stack, so the TypePHP entry receives the real command-line `argc` and
+`argv`. The standard extension's `php_uname()` remains implemented in the
+upstream `info.c`; the local `uname()` ABI reports `TypePHP-OS`. APIs whose
+required system call is not available terminate through an explicit panic
+stub. This keeps all Nano symbols linkable without pretending the incomplete
+OS ABI is implemented.
 
 The resident shell and each launched command have independent x86-64 address
 spaces backed by recyclable 4 KiB physical pages. Current ELF files use

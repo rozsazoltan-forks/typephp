@@ -26,6 +26,11 @@ size_t typephp_os_memory_available(void);
 
 /* A platform may override these weak hooks for diagnostics and shutdown. */
 void typephp_os_write(const char *data, size_t size);
+#ifdef __cplusplus
+[[noreturn]]
+#else
+_Noreturn
+#endif
 void typephp_os_panic(const char *message);
 
 /* Generic PHPX no-exception policy hook. */

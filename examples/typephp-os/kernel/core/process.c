@@ -37,7 +37,17 @@ enum {
     IDT_SYSCALL = 0x80,
     MAX_USER_ARGUMENTS = 8,
     USER_PATH_MAX = 128,
+    UTSNAME_LENGTH = 65,
 };
+
+typedef struct {
+    char sysname[UTSNAME_LENGTH];
+    char nodename[UTSNAME_LENGTH];
+    char release[UTSNAME_LENGTH];
+    char version[UTSNAME_LENGTH];
+    char machine[UTSNAME_LENGTH];
+    char domainname[UTSNAME_LENGTH];
+} user_utsname;
 
 enum {
     ELF_PT_LOAD = 1,
@@ -304,7 +314,11 @@ static int read_exact(int fd, void *buffer, size_t size)
 {
     unsigned char *output = (unsigned char *) buffer;
     while (size != 0) {
-        ssize_t result = read(fd, output, size);
+        /* The TypePHP filesystem bridge returns each read as a PHP string.
+         * Bound the temporary allocation while loading multi-megabyte Nano
+         * executables instead of requesting an entire ELF segment at once. */
+        const size_t request = size > 16u * 1024u ? 16u * 1024u : size;
+        ssize_t result = read(fd, output, request);
         if (result < 0) {
             return -errno;
         }
@@ -628,6 +642,23 @@ static long syscall_time(long *result)
         *result = seconds;
     }
     return seconds;
+}
+
+static long syscall_uname(user_utsname *result)
+{
+    static const user_utsname identity = {
+        "TypePHP-OS",
+        "typephp-os",
+        "0.1",
+        "TypePHP Nano user mode",
+        "x86_64",
+        "localdomain",
+    };
+    if (!user_buffer(result, sizeof(*result))) {
+        return -EFAULT;
+    }
+    memcpy(result, &identity, sizeof(*result));
+    return 0;
 }
 
 static unsigned int vm_protection(int protection)
@@ -1051,6 +1082,8 @@ long typephp_os_syscall_dispatch(syscall_frame *frame)
             (int) frame->rdx, (int) frame->r10);
     case TYPEPHP_SYS_EXIT:
         return syscall_exit(frame, (long) frame->rdi);
+    case TYPEPHP_SYS_UNAME:
+        return syscall_uname((user_utsname *) frame->rdi);
     default:
         return -ENOSYS;
     }

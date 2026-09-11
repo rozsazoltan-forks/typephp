@@ -46,7 +46,7 @@ behavior.
    read/write-through cache now avoids repeated ATA PIO reads while preserving
    synchronous persistence. A general VFS page cache, cross-directory rename,
    replacement semantics, and long filenames are next.
-6. **Single-task userspace — third slice complete.** Disk-backed ELF64
+6. **Single-task userspace — fourth slice complete.** Disk-backed ELF64
    validation/loading from FAT16,
    GDT/TSS, Ring-3 entry, synchronous
    `int 0x80` system calls, COM1 standard I/O, saved parent context, shared
@@ -68,8 +68,13 @@ behavior.
    and `wrfault.elf` cover invalid-opcode, isolation, and write-protection
    recovery, while page accounting checks reclamation. The
    programs use standard C `main(argc, argv)` behind a shared crt0 and receive
-   a Linux-style initial stack; syscall evolution follows the glibc migration
-   rules in `user/README.md`.
+   a Linux-style initial stack. A full PHP Nano/PHPX executable is now produced
+   by the ordinary tpc pipeline and runs in Ring 3 with working TypePHP
+   `argc/argv`; standard `php_uname()` reaches the userspace `uname()` ABI and
+   reports TypePHP-OS. Shared TypePHP userspace support is compiled once into
+   `libtypephp-os.a`, allowing multiple tpc projects to link the same runtime
+   platform archive. Unavailable ABI functions remain explicit panic stubs.
+   Syscall evolution follows the glibc migration rules in `user/README.md`.
 7. **Native Class memory.** Exercise Wren GC through Zend MM and verify tracing
    of PHPX fields under sustained allocation.
 8. **Kernel services.** Interrupt-driven timer and keyboard, higher-level VM

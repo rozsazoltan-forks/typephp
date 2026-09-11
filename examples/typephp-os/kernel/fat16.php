@@ -830,7 +830,7 @@ final class Fat16Volume
         }
         $remaining = $this->readU32($entry, 28);
         $cluster = $this->readU16($entry, 26);
-        $result = '';
+        $parts = [];
         $visited = 0;
         while ($remaining > 0 && $cluster >= 2 && $cluster < 0xfff8
             && $visited < $this->clusterCount) {
@@ -841,13 +841,13 @@ final class Fat16Volume
                     return '';
                 }
                 $length = $remaining < 512 ? $remaining : 512;
-                $result .= substr($sector, 0, $length);
+                $parts[] = substr($sector, 0, $length);
                 $remaining -= $length;
             }
             $cluster = $this->readFat($cluster);
             $visited++;
         }
-        return $remaining === 0 ? $result : '';
+        return $remaining === 0 ? implode('', $parts) : '';
     }
 
     public function readPathFile(string $path): string
@@ -862,7 +862,7 @@ final class Fat16Volume
         }
         $remaining = $this->readU32($entry, 28);
         $cluster = $this->readU16($entry, 26);
-        $result = '';
+        $parts = [];
         $visited = 0;
         while ($remaining > 0 && $cluster >= 2 && $cluster < 0xfff8
             && $visited < $this->clusterCount) {
@@ -873,13 +873,13 @@ final class Fat16Volume
                     return '';
                 }
                 $partLength = $remaining < 512 ? $remaining : 512;
-                $result .= substr($sector, 0, $partLength);
+                $parts[] = substr($sector, 0, $partLength);
                 $remaining -= $partLength;
             }
             $cluster = $this->readFat($cluster);
             $visited++;
         }
-        return $remaining === 0 ? $result : '';
+        return $remaining === 0 ? implode('', $parts) : '';
     }
 
     public function removeRootFile(string $name): bool

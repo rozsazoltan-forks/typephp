@@ -36,13 +36,13 @@ _start:
 
     # Identity-map the first GiB with 2 MiB pages.
     mov $pdp_table, %eax
-    # Upper paging levels must permit user traversal. Individual PDEs still
-    # decide whether a 2 MiB page is supervisor-only or visible to Ring 3.
-    or $0x7, %eax
+    # The bootstrap map is kernel-only. Each process later receives a
+    # separate CR3 with a high userspace region.
+    or $0x3, %eax
     mov %eax, pml4_table
 
     mov $pd_table, %eax
-    or $0x7, %eax
+    or $0x3, %eax
     mov %eax, pdp_table
 
     mov $pd_table, %edi
@@ -53,11 +53,6 @@ map_page:
     add $0x200000, %eax
     add $8, %edi
     loop map_page
-
-    # Reserve 32-36 MiB for the single user process image and stack. The
-    # remaining identity-mapped pages stay supervisor-only.
-    orl $0x4, pd_table + (16 * 8)
-    orl $0x4, pd_table + (17 * 8)
 
     # Enable PAE and prepare the x87/SSE state before entering long mode.
     mov %cr0, %ecx

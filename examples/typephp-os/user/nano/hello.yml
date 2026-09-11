@@ -2,15 +2,6 @@ name: typephp_os_user_hello
 mode: bin
 sources:
   - hello.php
-  - host.cc
-  - posix.c
-  - ../../kernel/core/abi/libc.c
-  - ../../kernel/core/abi/cxx.cpp
-  - ../../kernel/core/abi/unimplemented.S
-  - ../../thirdparty/openlibm/src
-objects:
-  - ../../build/objects/nano-crt0.o
-  - ../../build/objects/nano-syscall.o
 build-dir: ../../build/generated-user-hello
 output: ../../build/tnhello.elf
 cxx-std: c++17
@@ -59,6 +50,10 @@ ld-flags:
   - -no-pie
   - -Wl,-m,elf_x86_64
   - -Wl,--build-id=none
-  - -Wl,-T,examples/typephp-os/user/nano/linker.ld
+  - -Wl,-T,examples/typephp-os/user/runtime/linker.ld
   - -Wl,--defsym,USER_BASE=0x41000000
-  - -lgcc
+link-paths:
+  - ../../build
+link-libs:
+  - typephp-os
+  - gcc

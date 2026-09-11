@@ -12,6 +12,7 @@
 #define SYS_munmap TYPEPHP_SYS_MUNMAP
 #define SYS_brk TYPEPHP_SYS_BRK
 #define SYS_exit TYPEPHP_SYS_EXIT
+#define SYS_uname TYPEPHP_SYS_UNAME
 #define SYS_getcwd TYPEPHP_SYS_GETCWD
 #define SYS_chdir TYPEPHP_SYS_CHDIR
 #define SYS_mkdir TYPEPHP_SYS_MKDIR

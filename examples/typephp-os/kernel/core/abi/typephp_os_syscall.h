@@ -14,6 +14,7 @@ enum typephp_os_syscall_number {
     TYPEPHP_SYS_MUNMAP = 11,
     TYPEPHP_SYS_BRK = 12,
     TYPEPHP_SYS_EXIT = 60,
+    TYPEPHP_SYS_UNAME = 63,
     TYPEPHP_SYS_GETCWD = 79,
     TYPEPHP_SYS_CHDIR = 80,
     TYPEPHP_SYS_MKDIR = 83,

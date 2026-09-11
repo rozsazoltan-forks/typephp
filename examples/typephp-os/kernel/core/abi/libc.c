@@ -25,15 +25,25 @@ typedef struct typephp_os_block {
     size_t size;
 } typephp_os_block;
 
+typedef struct typephp_os_aligned_block {
+    void *pointer;
+    size_t size;
+    int allocated;
+} typephp_os_aligned_block;
+
+enum { TYPEPHP_OS_ALIGNED_BLOCK_CAPACITY = 64 };
+
 static uintptr_t arena_cursor;
 static uintptr_t arena_end;
 static int typephp_os_errno;
+static typephp_os_aligned_block aligned_blocks[TYPEPHP_OS_ALIGNED_BLOCK_CAPACITY];
 
 /* TypePHP OS has no hosted stdio object. These opaque values only satisfy
  * upstream error paths; bytes are forwarded through the host write hook. */
 void *stdin = (void *) 0;
 void *stdout = (void *) 1;
 void *stderr = (void *) 2;
+char **environ;
 
 size_t strlen(const char *string);
 void *malloc(size_t size);
@@ -70,6 +80,12 @@ static int is_power_of_two(size_t value)
 void typephp_os_memory_init(void *address, size_t size)
 {
     const uintptr_t begin = (uintptr_t) address;
+    size_t index;
+    for (index = 0; index < TYPEPHP_OS_ALIGNED_BLOCK_CAPACITY; ++index) {
+        aligned_blocks[index].pointer = 0;
+        aligned_blocks[index].size = 0;
+        aligned_blocks[index].allocated = 0;
+    }
     if (size > UINTPTR_MAX - begin) {
         arena_cursor = 0;
         arena_end = 0;
@@ -696,9 +712,20 @@ void *malloc(size_t size)
 
 void free(void *pointer)
 {
-    /* The bootstrap arena is monotonic. Zend's own allocations are reclaimed
-     * by zend_mm; backing chunks remain reserved until the kernel exits. */
-    (void) pointer;
+    size_t index;
+    if (pointer == 0) {
+        return;
+    }
+    /* Zend returns its large aligned backing blocks through free(). Retain
+     * their address-space reservation, but make the blocks reusable. */
+    for (index = 0; index < TYPEPHP_OS_ALIGNED_BLOCK_CAPACITY; ++index) {
+        if (aligned_blocks[index].pointer == pointer) {
+            aligned_blocks[index].allocated = 0;
+            return;
+        }
+    }
+    /* Small bootstrap allocations are process-lifetime monotonic blocks.
+     * Request-local PHP values are reclaimed inside Zend MM itself. */
 }
 
 void *calloc(size_t count, size_t size)
@@ -716,11 +743,23 @@ void *calloc(size_t count, size_t size)
 
 void *realloc(void *pointer, size_t size)
 {
+    size_t index;
     if (pointer == 0) {
         return malloc(size);
     }
     if (size == 0) {
         return 0;
+    }
+    for (index = 0; index < TYPEPHP_OS_ALIGNED_BLOCK_CAPACITY; ++index) {
+        if (aligned_blocks[index].pointer == pointer) {
+            const size_t old_size = aligned_blocks[index].size;
+            void *replacement = malloc(size);
+            if (replacement != 0) {
+                memcpy(replacement, pointer, old_size < size ? old_size : size);
+                aligned_blocks[index].allocated = 0;
+            }
+            return replacement;
+        }
     }
     typephp_os_block *old = (typephp_os_block *) pointer - 1;
     void *replacement = malloc(size);
@@ -732,6 +771,8 @@ void *realloc(void *pointer, size_t size)
 
 int posix_memalign(void **result, size_t alignment, size_t size)
 {
+    size_t index;
+    size_t free_slot = TYPEPHP_OS_ALIGNED_BLOCK_CAPACITY;
     if (result == 0 || !is_power_of_two(alignment) || alignment < sizeof(void *)) {
         return 22; /* EINVAL */
     }
@@ -740,14 +781,45 @@ int posix_memalign(void **result, size_t alignment, size_t size)
         return 12; /* ENOMEM */
     }
 
-    const uintptr_t payload = align_up(
-        arena_cursor + sizeof(typephp_os_block), alignment);
+    /* Zend requests its backing chunks with 2 MiB alignment. Reuse released
+     * chunks before extending the monotonic host arena. */
+    const int needs_header = alignment < 2u * 1024u * 1024u;
+    if (!needs_header) {
+        for (index = 0; index < TYPEPHP_OS_ALIGNED_BLOCK_CAPACITY; ++index) {
+            typephp_os_aligned_block *block = aligned_blocks + index;
+            if (block->pointer == 0) {
+                if (free_slot == TYPEPHP_OS_ALIGNED_BLOCK_CAPACITY) {
+                    free_slot = index;
+                }
+                continue;
+            }
+            if (!block->allocated && block->size >= size
+                && ((uintptr_t) block->pointer & (alignment - 1u)) == 0) {
+                block->allocated = 1;
+                memset(block->pointer, 0, size);
+                *result = block->pointer;
+                return 0;
+            }
+        }
+        if (free_slot == TYPEPHP_OS_ALIGNED_BLOCK_CAPACITY) {
+            *result = 0;
+            return 12;
+        }
+    }
+    const uintptr_t payload = align_up(arena_cursor
+        + (needs_header ? sizeof(typephp_os_block) : 0u), alignment);
     if (payload > arena_end || size > arena_end - payload) {
         *result = 0;
         return 12;
     }
-    typephp_os_block *block = (typephp_os_block *) payload - 1;
-    block->size = size;
+    if (needs_header) {
+        typephp_os_block *block = (typephp_os_block *) payload - 1;
+        block->size = size;
+    } else {
+        aligned_blocks[free_slot].pointer = (void *) payload;
+        aligned_blocks[free_slot].size = size;
+        aligned_blocks[free_slot].allocated = 1;
+    }
     arena_cursor = payload + size;
     *result = (void *) payload;
     return 0;

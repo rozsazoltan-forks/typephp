@@ -7,6 +7,7 @@
 #include <sys/syscall.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <sys/utsname.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -177,6 +178,11 @@ char *getcwd(char *buffer, size_t size)
 time_t time(time_t *result)
 {
     return (time_t) syscall(SYS_time, result);
+}
+
+int uname(struct utsname *value)
+{
+    return (int) syscall(SYS_uname, value);
 }
 
 void _exit(int status)
