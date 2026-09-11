@@ -414,10 +414,8 @@ final class NativeSourceProjectBuilder
         }
 
         $nm = $this->resolveExecutable('nm');
-        $auditor->assertUndefinedSymbols(
-            $project->target,
-            $this->runCapture([$nm, '-u', ...$objects], dirname($project->file)),
-        );
+        /* Native objects may deliberately provide an OS ABI to one another.
+         * The linked artifact is the actual host-capability boundary. */
         $auditor->assertUndefinedSymbols(
             $project->target,
             $this->runCapture(

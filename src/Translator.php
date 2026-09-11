@@ -2297,10 +2297,9 @@ CODE;
             );
             return;
         }
-        $auditor->assertUndefinedSymbols(
-            'native',
-            $this->captureNativeCommand(['nm', '-u', ...$objectFiles]),
-        );
+        /* Native objects may deliberately provide an OS ABI to one another
+         * (for example a freestanding syscall shim). Only unresolved imports
+         * in the final ELF cross the host-capability boundary. */
         $auditor->assertUndefinedSymbols(
             'native',
             $this->captureNativeCommand(['nm', '-u', $targetFile]),
