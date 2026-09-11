@@ -49,14 +49,14 @@ behavior.
    directory/stat operations, and PHP's local file stream API. DOS 8.3 path
    lookup, file reads, directory enumeration, file/directory mutation, and
    same-parent rename traverse nested cluster chains. Directories grow by
-   allocating and linking additional clusters. A fixed 128-sector LRU
-   read/write-through cache now avoids repeated ATA PIO reads while preserving
+   allocating and linking additional clusters. A 32 MiB direct-mapped
+   read/write-through cache covers the current disk image while preserving
    synchronous persistence. A general VFS page cache, cross-directory rename,
    replacement semantics, and long filenames are next.
 6. **Single-task userspace — fifth slice complete.** Disk-backed ELF64
    validation/loading from FAT16,
    GDT/TSS, Ring-3 entry, synchronous
-   `int 0x80` system calls, COM1 standard I/O, saved parent context, shared
+   native x86-64 `SYSCALL` entry, COM1 standard I/O, saved parent context, shared
    syscall definitions, complete `argv[]`
    delivery, and independent freestanding C shell/command programs. The first
    Linux-compatible file syscalls cover `openat`, `read`, `write`, `lseek`,
@@ -88,6 +88,8 @@ behavior.
    C++ ABI, and math support is compiled once into `libtypephp-os.a`; both the
    C commands and multiple tpc projects link the same platform archive.
    Unavailable ABI functions remain explicit panic stubs.
+   Fixed-console `ioctl(TIOCGWINSZ)` reports the VGA dimensions while other
+   terminal requests return `ENOTTY`; a complete termios subsystem is not implied.
    Selected upstream LLVM compiler-rt builtins now provide 128-bit integer
    helper symbols. A five-applet Toybox build is pinned as a porting probe but
    does not yet replace the working userspace commands.

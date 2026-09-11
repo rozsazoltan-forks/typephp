@@ -17,7 +17,7 @@ _start:
     mov %eax, %edi
     # Linux x86-64 exit_group(2); TypePHP-OS keeps the same number and ABI.
     mov $231, %eax
-    int $0x80
+    syscall
     ud2
 .size _start, . - _start
 

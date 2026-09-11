@@ -103,7 +103,8 @@ To build and audit the restricted hosted Toybox applet set, run
 `make thirdparty-smoke`. This is an integration audit, not part of the boot
 image.
 
-The Makefile compiles the startup sources under `boot/` directly. The 32-bit
+The Makefile compiles the startup sources under `boot/` directly. Its 256 KiB
+early kernel stack is kept separate from the adjacent identity-map tables. The 32-bit
 Multiboot bootstrap cannot participate in the 64-bit payload link; the 64-bit
 entry object is injected into tpc's final link through the generic `objects`
 setting. The Makefile also builds the
@@ -124,7 +125,7 @@ the payload linked at 2 MiB.
 To invoke QEMU manually:
 
 ```shell
-qemu-system-x86_64 -m 160M \
+qemu-system-x86_64 -m 512M \
   -kernel examples/typephp-os/build/typephp-os.elf \
   -drive file=examples/typephp-os/build/typephp-os.img,format=raw,if=ide,index=0 \
   -display none -serial stdio -monitor none -no-reboot -no-shutdown
@@ -154,7 +155,7 @@ The QEMU smoke test currently verifies:
 - RTC-derived UTC time exposed to userspace through `time()`;
 - Linux-compatible `uname(2)` shared by the `uname` command and PHP's
   `php_uname()` implementation;
-- ATA PIO sector I/O, a fixed 128-sector LRU read/write-through cache, and a
+- ATA PIO sector I/O, a 32 MiB direct-mapped read/write-through cache, and a
   TypePHP FAT16 implementation with DOS 8.3 files, nested traversal and
   mutation, including automatic directory-chain growth;
 - PHP's unchanged plain file stream and `php_stat()` paths, including
@@ -184,16 +185,20 @@ The QEMU smoke test currently verifies:
 - user-mode file creation, reading, writing, seeking, closing, removal, and
   nested directory creation/removal through the TypePHP FAT16 implementation.
 
-The 64-bit payload currently occupies about 7 MiB. The first 40 MiB is kept
-away from both allocators for the kernel payload, bootstrap state, and early
-host arena. Userspace has a separate 0x40000000–0x50000000 virtual region.
+The loadable 64-bit payload is followed by a large zero-filled block cache in
+kernel BSS. The first 64 MiB is kept away from both allocators for the kernel
+payload, cache, bootstrap state, and early host arena. Userspace has a separate
+0x40000000–0x50000000 virtual region.
 Entire Zend chunks are not yet returned to the physical-page pool.
 
 The current filesystem deliberately supports only DOS 8.3 names. Reading,
 directory enumeration, `stat`, executable loading, and file/directory mutation
 traverse nested FAT16 directory chains. Full directories grow by linking a new
-cluster. The current ATA cache is deliberately small, synchronous, and
-write-through; it is not yet a general virtual-filesystem page cache. Rename
+cluster. The current ATA cache is synchronous and write-through. Its 65,536
+direct-mapped sector entries cover the complete current 32 MiB disk image, so
+repeated Nano ELF loads no longer return to ATA PIO. It is still a block cache,
+not a general virtual-filesystem page cache, and every Nano process still
+performs its own runtime initialization. Rename
 currently stays within one parent directory; cross-directory rename,
 replacement semantics, long filenames, timestamps, permissions, and a general
 block-device layer remain future work.
@@ -203,23 +208,26 @@ APIs that execute host commands remain unavailable.
 ## Single-task userspace
 
 After the TypePHP self-check, the kernel opens `/BIN/SH.ELF` from FAT16,
-validates and loads its `PT_LOAD` segments, installs a 64-bit TSS and an IDT
-gate, and enters Ring 3 with `iretq`. The resident shell and each transient
+validates and loads its `PT_LOAD` segments, installs a 64-bit TSS, IDT and
+`SYSCALL` MSRs, and enters Ring 3 with `iretq`. The resident shell and each transient
 command receive an independent CR3. Their 1–1.25 GiB virtual window is composed
 from recyclable 4 KiB pages; the shared identity-mapped kernel remains
 supervisor-only. The CPU has write protection and no-execute enabled, and the
 loader applies the final ELF `PF_W` and `PF_X` permissions after copying each
 segment.
-An `int 0x80` boundary currently provides synchronous `read`, `write`, `close`,
+The native x86-64 `SYSCALL` boundary provides synchronous `read`, `write`, `close`,
 `lseek`, `openat`, `exit`/`exit_group`, `getcwd`, `chdir`, `mkdir`, `rmdir`,
 `unlink`, file stat/access/persistence/truncation families, fixed identity
 queries, `time`, `gettimeofday`, `clock_gettime`, `clock_getres`, `brk`,
 anonymous private `mmap`, `mprotect`, `munmap`, `getdents64`, the initial
-`fcntl` flag operations, and private
+`fcntl` flag operations, fixed-console `ioctl(TIOCGWINSZ)`, and private
 spawn and same-directory rename operations. The former private directory-list
 syscall has been removed; `ls` and PHP Nano use the standard directory ABI. Standard
 input and output are backed by QEMU's COM1 serial console. Syscall numbers are
 shared by the kernel and userspace through `typephp_os_syscall.h`.
+Entry immediately switches from the untrusted user RSP to a dedicated kernel
+stack. Return uses `iretq`, allowing synchronous spawn/exit to replace the
+complete saved user context.
 
 Userspace programs now expose standard C `main(argc, argv)` functions. A shared
 `crt0.S` consumes a Linux-style initial stack containing `argc`, `argv`, an

@@ -11,7 +11,7 @@ trap 'rm -f "${qemu_disk}"' EXIT
 cp "${disk}" "${qemu_disk}"
 
 if timeout 35 qemu-system-x86_64 \
-        -m 160M \
+        -m 512M \
         -kernel "${kernel}" \
         -drive file="${qemu_disk}",format=raw,if=ide,index=0 \
         -display none \
@@ -73,6 +73,10 @@ grep -q '^basic syscalls: OK' "${log}"
 grep -q '^compiler-rt builtins: OK' "${log}"
 if grep -q 'unsupported TypePHP-OS user ABI' "${log}"; then
     echo "the Nano smoke program reached an unsupported userspace ABI" >&2
+    exit 1
+fi
+if grep -q 'general protection (#13)' "${log}"; then
+    echo "a userspace command caused an unexpected general-protection fault" >&2
     exit 1
 fi
 grep -q '^sh: missing: No such file or directory' "${log}"

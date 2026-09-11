@@ -30,7 +30,7 @@ SECTIONS
         __bss_end = .;
     }
 
-    ASSERT(__bss_end <= 16M, "64-bit kernel exceeds its reserved boot memory")
+    ASSERT(__bss_end <= 64M, "64-bit kernel exceeds its reserved boot memory")
 
     /DISCARD/ :
     {

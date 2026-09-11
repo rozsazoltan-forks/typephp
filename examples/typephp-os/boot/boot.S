@@ -19,7 +19,10 @@ pd_table:
 
 .align 16
 stack_bottom:
-.skip 16384
+/* PHP Nano and the TypePHP startup self-check use more than the original
+ * 16 KiB bootstrap stack before Ring-3 is entered. Keep enough headroom that
+ * downward growth cannot overwrite the adjacent identity-map page tables. */
+.skip 262144
 stack_top:
 
 .section .text

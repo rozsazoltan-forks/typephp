@@ -26,8 +26,8 @@ The following rules are normative for this directory:
 6. New kernel services should first consider the remaining interfaces needed
    by a static libc and PHP Nano: memory mapping, files and directories,
    clocks, TLS, and single-task lifecycle. Socket support remains out of
-   scope. `ioctl` and `termios` are also intentionally deferred; basic console
-   `read`/`write` is the supported terminal contract.
+   scope. The fixed console supports `ioctl(TIOCGWINSZ)`; a complete termios
+   subsystem remains intentionally deferred.
 7. Freestanding test programs remain hosted-libc-free only as a bootstrap
    constraint; it is not the final userspace programming model. C and TypePHP
    programs must link the same `libtypephp-os.a` platform runtime instead of
@@ -44,7 +44,7 @@ The current shared userspace runtime provides `syscall`, `read`, `write`, `opena
 `getpid`, `getppid`, `gettid`, the root UID/GID queries, `brk`, `sbrk`, `mmap`,
 `mprotect`, `munmap`, `opendir`, `fdopendir`, `readdir`, `rewinddir`,
 `closedir`, `dirfd`, the `F_GETFD`/`F_SETFD`/`F_GETFL`/`F_SETFL` subset of
-`fcntl`, `strlen`, `strerror`, `perror`, and `_exit` with
+`fcntl`, fixed-console `ioctl(TIOCGWINSZ)`, `strlen`, `strerror`, `perror`, and `_exit` with
 libc-compatible C signatures. Directory streams are backed by Linux x86-64
 `getdents64`; no TypePHP-OS-private directory syscall is exposed. It also
 translates kernel `-errno` results into `-1` plus the single-task userspace
@@ -93,10 +93,11 @@ and confines the resident shell and transient command to separate page tables,
 even when they use overlapping virtual addresses. Adding a compatible command
 file does not require relinking the kernel.
 
-The current `int 0x80` entry is transitional. Before linking an ordinary
-x86-64 glibc build, the kernel must also accept the `syscall` instruction with
-the Linux register convention (`rax`, `rdi`, `rsi`, `rdx`, `r10`, `r8`, `r9`),
-negative errno returns, and the expected `rcx`/`r11` clobbers.
+Userspace enters the kernel with the x86-64 `SYSCALL` instruction and Linux
+register convention (`rax`, `rdi`, `rsi`, `rdx`, `r10`, `r8`, `r9`). Kernel
+entry switches to a dedicated stack, returns negative errno values, and
+preserves the standard `rcx`/`r11` clobber contract. Return currently uses
+`iretq` because synchronous spawn/exit may replace the complete saved context.
 
 Using unmodified upstream glibc will require substantially more than matching
 syscall numbers. The kernel must eventually provide the expected ELF process

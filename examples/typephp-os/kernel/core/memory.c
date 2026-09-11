@@ -13,7 +13,7 @@ static const uint64_t PAGE_SIZE = 4096ul;
 /* Keep the payload, bootstrap data, and early host arena away from the two
  * physical allocators. User programs occupy a separate high virtual region
  * in their own CR3, so they no longer overlap this identity-mapped range. */
-static const uint64_t KERNEL_RESERVED_END = 40ul * 1024ul * 1024ul;
+static const uint64_t KERNEL_RESERVED_END = 64ul * 1024ul * 1024ul;
 static const uint64_t IDENTITY_MAP_END = 1024ul * 1024ul * 1024ul;
 
 typedef struct __attribute__((packed)) {

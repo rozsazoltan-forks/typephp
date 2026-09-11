@@ -33,10 +33,10 @@ enum {
     ATA_COMMAND_CACHE_FLUSH = 0xe7,
     ATA_SECTOR_SIZE = 512,
     ATA_TIMEOUT = 10000000,
-    /* TNHELLO.ELF is currently about 5 MiB. A power-of-two 8 MiB cache keeps
-     * one complete image resident so a second launch avoids ATA PIO, while a
-     * direct mapping keeps every sector lookup O(1). */
-    ATA_CACHE_CAPACITY = 16384,
+    /* QEMU uses a 32 MiB FAT16 image. One direct-mapped entry per image
+     * sector turns the current disk into an effective whole-device cache;
+     * larger future disks remain correct and use the same O(1) mapping. */
+    ATA_CACHE_CAPACITY = 65536,
     PCI_CONFIG_ADDRESS = 0xcf8,
     PCI_CONFIG_DATA = 0xcfc,
 };

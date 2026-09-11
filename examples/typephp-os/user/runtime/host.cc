@@ -13,7 +13,7 @@ namespace {
 
 /* Zend MM acquires aligned 2 MiB chunks while PHPX's native object GC also
  * keeps process-lifetime metadata. A 48 MiB arena leaves enough headroom for
- * the complete Nano module startup in the current 160 MiB QEMU machine. */
+ * the complete Nano module startup in the current 512 MiB QEMU machine. */
 constexpr std::uintptr_t arena_size = 48u * 1024u * 1024u;
 
 [[noreturn]] void raw_exit(int status)

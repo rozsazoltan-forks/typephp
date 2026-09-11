@@ -169,7 +169,7 @@ $(KERNEL): payload
 		$(BOOTSTRAP_OBJECT) $(PAYLOAD_OBJECT)
 
 run: all
-	qemu-system-x86_64 -m 160M -kernel $(KERNEL) \
+	qemu-system-x86_64 -m 512M -kernel $(KERNEL) \
 		-drive file=$(DISK),format=raw,if=ide,index=0 \
 		-display none -serial stdio -monitor none -no-reboot -no-shutdown
 
