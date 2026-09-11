@@ -116,7 +116,7 @@ $(BOOTSTRAP_OBJECT): boot/boot.S | $(OBJECT_DIR)
 $(KERNEL64_ENTRY_OBJECT): boot/kernel64-entry.S | $(OBJECT_DIR)
 	gcc $(KERNEL64_BOOTFLAGS) -c $< -o $@
 
-$(OBJECT_DIR)/%.o: user/%.c $(USER_HEADERS) kernel/core/abi/typephp_os_syscall.h | $(OBJECT_DIR)
+$(OBJECT_DIR)/%.o: user/cmd/%.c $(USER_HEADERS) kernel/core/abi/typephp_os_syscall.h | $(OBJECT_DIR)
 	gcc $(USER_CFLAGS) -c $< -o $@
 
 $(OPENLIBM_SOURCES): | thirdparty

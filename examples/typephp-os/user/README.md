@@ -33,6 +33,10 @@ The following rules are normative for this directory:
    programs must link the same `libtypephp-os.a` platform runtime instead of
    maintaining private startup or libc copies.
 
+The resident shell and its standalone C command sources live under `cmd/`.
+Reusable startup, syscall, POSIX/libc, C++ ABI, and math support lives under
+`runtime/` and is emitted only as `build/libtypephp-os.a`.
+
 The current shared userspace runtime provides `syscall`, `read`, `write`, `openat`,
 `open`, `close`, `lseek`, `getcwd`, `chdir`, `mkdir`, `rmdir`, `unlink`,
 `rename`, `stat`, `lstat`, `fstat`, `access`, `fsync`, `fdatasync`, `truncate`,

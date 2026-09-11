@@ -22,7 +22,7 @@ boot/                 Make-built startup assembly and linker scripts
 kernel/*.php          TypePHP kernel implementation
 kernel/core/          Native kernel implementation compiled by tpc
 kernel/core/abi/      Freestanding C/POSIX and C++ compatibility boundary
-user/                 Independently built Ring-3 programs and bootstrap libc
+user/                 Ring-3 commands, TypePHP projects, headers, and runtime
 ```
 
 Additional TypePHP kernel files stay directly under `kernel/` until a concrete
