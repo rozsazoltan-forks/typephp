@@ -163,6 +163,10 @@ The QEMU smoke test currently verifies:
 - Linux-compatible file metadata and persistence calls (`stat`, `lstat`,
   `fstat`, `newfstatat`, `access`, `faccessat`, `fsync`, `fdatasync`,
   `truncate`, and `ftruncate`), exercised from both C and PHP Nano;
+- Linux-compatible directory descriptors and `getdents64`, exposed to C and
+  PHP Nano through `opendir`, `readdir`, `rewinddir`, and `closedir`;
+- the first `fcntl` subset (`F_GETFD`, `F_SETFD`, `F_GETFL`, `F_SETFL`),
+  including tracked `FD_CLOEXEC`/`O_NONBLOCK` state and effective `O_APPEND`;
 - single-task PID/TID and root UID/GID queries plus `gettimeofday`,
   `clock_gettime`, `clock_getres`, and `exit_group`;
 - dynamic command discovery and safe rejection of malformed ELF files;
@@ -201,8 +205,10 @@ An `int 0x80` boundary currently provides synchronous `read`, `write`, `close`,
 `lseek`, `openat`, `exit`/`exit_group`, `getcwd`, `chdir`, `mkdir`, `rmdir`,
 `unlink`, file stat/access/persistence/truncation families, fixed identity
 queries, `time`, `gettimeofday`, `clock_gettime`, `clock_getres`, `brk`,
-anonymous private `mmap`, `mprotect`, `munmap`, and private spawn,
-directory-list, and same-directory rename operations. Standard
+anonymous private `mmap`, `mprotect`, `munmap`, `getdents64`, the initial
+`fcntl` flag operations, and private
+spawn and same-directory rename operations. The former private directory-list
+syscall has been removed; `ls` and PHP Nano use the standard directory ABI. Standard
 input and output are backed by QEMU's COM1 serial console. Syscall numbers are
 shared by the kernel and userspace through `typephp_os_syscall.h`.
 

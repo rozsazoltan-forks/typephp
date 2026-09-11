@@ -25,7 +25,7 @@ link-libs:
 ```
 
 The archive owns the userspace `_start`, PHP Nano host entry, syscall bridge,
-POSIX/libc and C++ ABI shims, and math implementation. Application projects
+POSIX/libc and C++ ABI shims, buffered `dirent` implementation, and math implementation. Application projects
 must not compile private copies of these files. This allows any number of
 projects under `user/` to reuse one platform archive and keeps their generated
 object directories independent.

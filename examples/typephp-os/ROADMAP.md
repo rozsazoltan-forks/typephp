@@ -58,7 +58,12 @@ behavior.
    delivery, and independent freestanding C shell/command programs. The first
    Linux-compatible file syscalls cover `openat`, `read`, `write`, `lseek`,
    `close`, `mkdir`, `rmdir`, `unlink`, the stat/access families, synchronous
-   persistence, and file truncation; `cat`, `write`, `touch`, and the
+   persistence, file truncation, directory descriptors, and `getdents64`;
+   `ls` now uses the standard buffered `dirent` API rather than a private
+   directory-list syscall. Flag-oriented `fcntl` operations preserve
+   close-on-exec, append, and nonblocking descriptor state, with append
+   enforced by the write path; descriptor
+   duplication and record locking remain future work. `cat`, `write`, `touch`, and the
    directory commands exercise persistent FAT16 changes. The `mv` command
    exposes same-parent rename through a private syscall until full Linux
    rename semantics are implemented. The resident shell

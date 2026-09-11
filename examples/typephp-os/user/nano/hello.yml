@@ -56,3 +56,4 @@ link-paths:
   - ../../build
 link-libs:
   - typephp-os
+  - compiler-rt-builtins

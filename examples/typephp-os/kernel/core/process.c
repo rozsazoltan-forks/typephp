@@ -541,22 +541,6 @@ static long syscall_chdir(const char *path)
     return 0;
 }
 
-static long syscall_readdir(const char *path, char *buffer, size_t capacity)
-{
-    char resolved[USER_PATH_MAX];
-    const char *directory = foreground_process.cwd;
-    if (path != 0) {
-        if (!resolved_path(path, resolved, sizeof(resolved))) {
-            return -ENOENT;
-        }
-        directory = resolved;
-    }
-    if (!user_buffer(buffer, capacity)) {
-        return -EFAULT;
-    }
-    return typephp_os_fs_list(directory, buffer, capacity);
-}
-
 static int resolved_path(const char *path, char *resolved, size_t capacity)
 {
     size_t length = bounded_user_string(path, capacity);
@@ -1175,6 +1159,9 @@ long typephp_os_syscall_dispatch(syscall_frame *frame)
     case TYPEPHP_SYS_GETPID:
     case TYPEPHP_SYS_GETTID:
         return (long) foreground_process.pid;
+    case TYPEPHP_SYS_FCNTL:
+        return posix_syscall_result(fcntl(
+            (int) frame->rdi, (int) frame->rsi, (int) frame->rdx));
     case TYPEPHP_SYS_SPAWN:
         return syscall_spawn(frame, (const char *const *) frame->rdi);
     case TYPEPHP_SYS_GETCWD:
@@ -1224,6 +1211,15 @@ long typephp_os_syscall_dispatch(syscall_frame *frame)
     }
     case TYPEPHP_SYS_TIME:
         return syscall_time((long *) frame->rdi);
+    case TYPEPHP_SYS_GETDENTS64:
+        if (frame->rdx == 0) {
+            return -EINVAL;
+        }
+        if (!user_buffer((void *) frame->rsi, frame->rdx)) {
+            return -EFAULT;
+        }
+        return typephp_os_fs_getdents64((int) frame->rdi,
+            (void *) frame->rsi, frame->rdx);
     case TYPEPHP_SYS_GETTIMEOFDAY:
         if (frame->rsi != 0) {
             return -EINVAL;
@@ -1242,9 +1238,6 @@ long typephp_os_syscall_dispatch(syscall_frame *frame)
     case TYPEPHP_SYS_CLOCK_GETRES:
         return syscall_clock((int) frame->rdi,
             (user_timespec *) frame->rsi, 1);
-    case TYPEPHP_SYS_LISTDIR:
-        return syscall_readdir((const char *) frame->rdi,
-            (char *) frame->rsi, frame->rdx);
     case TYPEPHP_SYS_OPENAT:
         return syscall_openat((long) frame->rdi, (const char *) frame->rsi,
             (int) frame->rdx, (int) frame->r10);

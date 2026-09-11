@@ -12,4 +12,5 @@ function main(int $argc, array $argv): void
     var_dump(php_uname());
     var_dump(file_exists('/HELLO.TXT'));
     var_dump(filesize('/HELLO.TXT') > 0);
+    var_dump(scandir('/') !== false);
 }

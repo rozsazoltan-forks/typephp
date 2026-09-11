@@ -18,6 +18,7 @@
 #define SYS_getpid TYPEPHP_SYS_GETPID
 #define SYS_exit TYPEPHP_SYS_EXIT
 #define SYS_uname TYPEPHP_SYS_UNAME
+#define SYS_fcntl TYPEPHP_SYS_FCNTL
 #define SYS_fsync TYPEPHP_SYS_FSYNC
 #define SYS_fdatasync TYPEPHP_SYS_FDATASYNC
 #define SYS_truncate TYPEPHP_SYS_TRUNCATE
@@ -35,6 +36,7 @@
 #define SYS_getppid TYPEPHP_SYS_GETPPID
 #define SYS_gettid TYPEPHP_SYS_GETTID
 #define SYS_time TYPEPHP_SYS_TIME
+#define SYS_getdents64 TYPEPHP_SYS_GETDENTS64
 #define SYS_clock_gettime TYPEPHP_SYS_CLOCK_GETTIME
 #define SYS_clock_getres TYPEPHP_SYS_CLOCK_GETRES
 #define SYS_exit_group TYPEPHP_SYS_EXIT_GROUP
@@ -45,7 +47,6 @@
 /* Private bootstrap services; these deliberately do not claim Linux syscall
  * numbers or semantics. */
 #define SYS_typephp_spawn TYPEPHP_SYS_SPAWN
-#define SYS_typephp_listdir TYPEPHP_SYS_LISTDIR
 #define SYS_typephp_rename TYPEPHP_SYS_RENAME
 
 long syscall(long number, ...);

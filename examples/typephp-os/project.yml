@@ -5,6 +5,10 @@ sources:
   - thirdparty/openlibm/src
 objects:
   - build/objects/kernel64-entry.o
+link-paths:
+  - build
+link-libs:
+  - compiler-rt-builtins
 build-dir: build/generated
 output: build/kernel64.elf
 cxx-std: c++17

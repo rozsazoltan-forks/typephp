@@ -35,8 +35,11 @@ The current bootstrap libc provides `syscall`, `read`, `write`, `openat`,
 `rename`, `stat`, `lstat`, `fstat`, `access`, `fsync`, `fdatasync`, `truncate`,
 `ftruncate`, `time`, `gettimeofday`, `clock_gettime`, `clock_getres`, `uname`,
 `getpid`, `getppid`, `gettid`, the root UID/GID queries, `brk`, `sbrk`, `mmap`,
-`mprotect`, `munmap`, `strlen`, `strerror`, `perror`, and `_exit` with
-libc-compatible C signatures. It also
+`mprotect`, `munmap`, `opendir`, `fdopendir`, `readdir`, `rewinddir`,
+`closedir`, `dirfd`, the `F_GETFD`/`F_SETFD`/`F_GETFL`/`F_SETFL` subset of
+`fcntl`, `strlen`, `strerror`, `perror`, and `_exit` with
+libc-compatible C signatures. Directory streams are backed by Linux x86-64
+`getdents64`; no TypePHP-OS-private directory syscall is exposed. It also
 translates kernel `-errno` results into `-1` plus the single-task userspace
 `errno`. This list is a migration layer, not a reason to create
 project-specific variants of standard functions.
@@ -64,8 +67,9 @@ mappings, shared mappings, fixed mappings, remapping, and demand paging are not
 implemented yet. `brk()` and `mmap()` eagerly allocate zero-filled pages;
 `munmap()` and process teardown return them to the physical-page pool.
 
-The kernel additionally accepts Linux x86-64 `newfstatat`, `faccessat`, and
-`exit_group`. File metadata uses the Linux x86-64 144-byte `struct stat`
+The kernel additionally accepts Linux x86-64 `newfstatat`, `faccessat`,
+`getdents64`, the initial flag-only `fcntl` subset, and `exit_group`. File
+metadata uses the Linux x86-64 144-byte `struct stat`
 layout. FAT16 currently has no owners, ACLs, symlinks, executable file bit, or
 sub-second timestamps: UID/GID are always root, ordinary files are `0666`,
 directories are `0777`, and clock resolution is one second.

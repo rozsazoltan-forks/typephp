@@ -40,7 +40,7 @@ void phpx_no_exception_abort(const char *message);
  * boundary. The filesystem implementations continue to live in TypePHP. */
 void typephp_os_process_start(void);
 long typephp_os_fs_path_type(const char *path);
-long typephp_os_fs_list(const char *path, char *buffer, size_t capacity);
+long typephp_os_fs_getdents64(int fd, void *buffer, size_t capacity);
 long typephp_os_console_read(void *buffer, size_t size);
 
 #ifdef __cplusplus

@@ -1,5 +1,4 @@
 #include <errno.h>
-#include <dirent.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <string.h>
@@ -16,18 +15,6 @@
 /* glibc hides this GNU extension when php-nano requests POSIX.1-2008 only. */
 long syscall(long number, ...);
 extern char **environ;
-
-static __attribute__((noreturn)) void unsupported(const char *name)
-{
-    static const char prefix[] = "unsupported TypePHP-OS user ABI: ";
-    (void) syscall(TYPEPHP_SYS_WRITE, STDERR_FILENO, prefix, sizeof(prefix) - 1);
-    (void) syscall(TYPEPHP_SYS_WRITE, STDERR_FILENO, name, strlen(name));
-    (void) syscall(TYPEPHP_SYS_WRITE, STDERR_FILENO, "\n", 1);
-    (void) syscall(TYPEPHP_SYS_EXIT, 126);
-    for (;;) {
-        __asm__ volatile("pause");
-    }
-}
 
 ssize_t read(int fd, void *buffer, size_t count)
 {
@@ -194,30 +181,6 @@ int faccessat(int directory_fd, const char *path, int mode, int flags)
 {
     return (int) syscall(
         TYPEPHP_SYS_FACCESSAT, directory_fd, path, mode, flags);
-}
-
-DIR *opendir(const char *path)
-{
-    (void) path;
-    unsupported("opendir");
-}
-
-struct dirent *readdir(DIR *directory)
-{
-    (void) directory;
-    unsupported("readdir");
-}
-
-int closedir(DIR *directory)
-{
-    (void) directory;
-    unsupported("closedir");
-}
-
-void rewinddir(DIR *directory)
-{
-    (void) directory;
-    unsupported("rewinddir");
 }
 
 int fsync(int fd)

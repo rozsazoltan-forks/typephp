@@ -1,3 +1,4 @@
+#include <dirent.h>
 #include <fcntl.h>
 #include <stddef.h>
 #include <sys/stat.h>
@@ -19,6 +20,15 @@ static int fail(const char *operation)
     return 1;
 }
 
+static int same_string(const char *left, const char *right)
+{
+    while (*left != '\0' && *left == *right) {
+        ++left;
+        ++right;
+    }
+    return *left == *right;
+}
+
 int main(int argc, char **argv)
 {
     static const char path[] = "/SYS.TMP";
@@ -28,6 +38,9 @@ int main(int argc, char **argv)
     struct timespec realtime;
     struct timespec monotonic;
     struct timespec resolution;
+    DIR *directory;
+    struct dirent *entry;
+    int found_hello = 0;
     int fd;
     (void) argc;
     (void) argv;
@@ -43,8 +56,20 @@ int main(int argc, char **argv)
 
     (void) unlink(path);
     fd = open(path, O_CREAT | O_TRUNC | O_RDWR, 0666);
-    if (fd < 0 || write(fd, payload, sizeof(payload) - 1) != sizeof(payload) - 1
-        || fsync(fd) != 0 || ftruncate(fd, 3) != 0
+    if (fd < 0
+        || write(fd, payload, sizeof(payload) - 1) != sizeof(payload) - 1) {
+        return fail("descriptor write");
+    }
+    if ((fcntl(fd, F_GETFL) & 3) != O_RDWR
+        || fcntl(fd, F_SETFD, FD_CLOEXEC) != 0
+        || fcntl(fd, F_GETFD) != FD_CLOEXEC
+        || fcntl(fd, F_SETFL, O_APPEND) != 0
+        || lseek(fd, 0, SEEK_SET) != 0
+        || write(fd, "Z", 1) != 1
+        || fstat(fd, &info) != 0 || info.st_size != 7) {
+        return fail("fcntl/append");
+    }
+    if (fsync(fd) != 0 || ftruncate(fd, 3) != 0
         || fstat(fd, &info) != 0 || info.st_size != 3
         || fdatasync(fd) != 0 || close(fd) != 0) {
         return fail("descriptor persistence");
@@ -52,6 +77,23 @@ int main(int argc, char **argv)
     if (truncate(path, 1) != 0 || lstat(path, &info) != 0
         || info.st_size != 1 || unlink(path) != 0) {
         return fail("path truncate");
+    }
+
+    directory = opendir("/");
+    if (directory == NULL || fstat(dirfd(directory), &info) != 0
+        || !S_ISDIR(info.st_mode)) {
+        return fail("opendir/fstat");
+    }
+    while ((entry = readdir(directory)) != NULL) {
+        if (same_string(entry->d_name, "HELLO.TXT")) {
+            found_hello = 1;
+        }
+    }
+    rewinddir(directory);
+    entry = readdir(directory);
+    if (!found_hello || entry == NULL || !same_string(entry->d_name, ".")
+        || closedir(directory) != 0) {
+        return fail("getdents64/rewinddir");
     }
 
     if (getpid() != 2 || gettid() != 2 || getppid() != 1

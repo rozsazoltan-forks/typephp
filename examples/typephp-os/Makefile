@@ -7,19 +7,25 @@ PAYLOAD_BIN := $(BUILD)/kernel64.bin
 PAYLOAD_OBJECT := $(OBJECT_DIR)/kernel64-payload.o
 KERNEL := $(BUILD)/typephp-os.elf
 DISK := $(BUILD)/typephp-os.img
-USER_COMMANDS := ls cd date uname pwd cat echo write touch mkdir rm rmdir mv fault vmfault wrfault memtest systest
+USER_COMMANDS := ls cd date uname pwd cat echo write touch mkdir rm rmdir mv fault vmfault wrfault memtest systest builtins
 USER_PROGRAMS := sh $(USER_COMMANDS)
 USER_SH_ELF := $(BUILD)/sh.elf
 USER_COMMAND_ELFS := $(addprefix $(BUILD)/,$(addsuffix .elf,$(USER_COMMANDS)))
 USER_CRT0_OBJECT := $(OBJECT_DIR)/user-crt0.o
-USER_LIBC_OBJECTS := $(OBJECT_DIR)/user-libc.o $(OBJECT_DIR)/user-syscall.o
+USER_LIBC_OBJECTS := $(OBJECT_DIR)/user-libc.o $(OBJECT_DIR)/user-dirent.o \
+	$(OBJECT_DIR)/user-fcntl.o $(OBJECT_DIR)/user-syscall.o
 NANO_USER_ELF := $(BUILD)/tnhello.elf
 TYPEPHP_OS_LIBRARY := $(BUILD)/libtypephp-os.a
 TYPEPHP_OS_LIBRARY_OBJECT_DIR := $(BUILD)/libtypephp-os
+COMPILER_RT_LIBRARY := $(BUILD)/libcompiler-rt-builtins.a
+COMPILER_RT_OBJECT_DIR := $(BUILD)/compiler-rt-builtins
 PHP_NANO_DIR := $(or $(realpath ../../vendor/swoole/php-nano),$(realpath ../../../php-nano))
 PHPX_DIR := $(or $(realpath ../../vendor/swoole/phpx),$(realpath ../../../phpx))
 OPENLIBM_SOURCES := $(shell sed -n 's|^\(.*\.c\)$$|thirdparty/openlibm/\1|p' tools/openlibm-files.txt)
-TYPEPHP_OS_LIBRARY_C_SOURCES := user/runtime/posix.c kernel/core/abi/libc.c $(OPENLIBM_SOURCES)
+COMPILER_RT_SOURCES := $(shell awk '$$2 ~ /\.c$$/ { print "thirdparty/compiler-rt/" $$2 }' tools/compiler-rt-builtins-files.sha256)
+COMPILER_RT_OBJECTS := $(patsubst thirdparty/compiler-rt/lib/builtins/%.c,$(COMPILER_RT_OBJECT_DIR)/%.o,$(COMPILER_RT_SOURCES))
+TYPEPHP_OS_LIBRARY_C_SOURCES := user/runtime/posix.c user/dirent.c user/fcntl.c \
+	kernel/core/abi/libc.c $(OPENLIBM_SOURCES)
 TYPEPHP_OS_LIBRARY_CXX_SOURCES := user/runtime/host.cc kernel/core/abi/cxx.cpp
 TYPEPHP_OS_LIBRARY_ASM_SOURCES := user/runtime/crt0.S user/runtime/syscall.S \
 	kernel/core/abi/unimplemented.S
@@ -30,7 +36,7 @@ TYPEPHP_OS_LIBRARY_OBJECTS := \
 	$(patsubst %.S,$(TYPEPHP_OS_LIBRARY_OBJECT_DIR)/%.o,$(TYPEPHP_OS_LIBRARY_ASM_SOURCES))
 TYPEPHP_OS_LIBRARY_DEPFILES := $(addsuffix .d,$(TYPEPHP_OS_LIBRARY_OBJECTS))
 NANO_USER_SOURCES := user/nano/hello.php user/nano/hello.yml user/runtime/linker.ld \
-	$(TYPEPHP_OS_LIBRARY)
+	$(TYPEPHP_OS_LIBRARY) $(COMPILER_RT_LIBRARY)
 
 BOOTFLAGS := -m32 -O2 -ffreestanding -fno-pic -fno-pie \
 	-fno-stack-protector -Wall -Wextra
@@ -64,14 +70,19 @@ TYPEPHP_OS_RUNTIME_ASMFLAGS := -m64 -ffreestanding -fno-pic -fno-pie \
 	-fno-stack-protector -mno-red-zone -mcmodel=small
 ARFLAGS := rcs
 
-.PHONY: all thirdparty payload objects user-runtime nano-user disk run test clean
+.PHONY: all thirdparty thirdparty-smoke compiler-rt-builtins payload objects user-runtime nano-user disk run test clean
 
 all: $(KERNEL) $(DISK)
 
 thirdparty:
 	./tools/fetch-thirdparty.sh
 
-payload: thirdparty objects
+thirdparty-smoke: thirdparty compiler-rt-builtins
+	./tools/test-thirdparty.sh
+
+compiler-rt-builtins: $(COMPILER_RT_LIBRARY)
+
+payload: thirdparty objects $(COMPILER_RT_LIBRARY)
 	cd ../.. && ./bin/tpc.php --nano examples/typephp-os/project.yml
 
 # Startup sources are built explicitly by Make. The 64-bit entry object is
@@ -115,10 +126,25 @@ $(USER_CRT0_OBJECT): user/crt0.S kernel/core/abi/typephp_os_syscall.h | $(OBJECT
 $(OBJECT_DIR)/user-libc.o: user/libc.c $(USER_HEADERS) kernel/core/abi/typephp_os_syscall.h | $(OBJECT_DIR)
 	gcc $(USER_CFLAGS) -c $< -o $@
 
+$(OBJECT_DIR)/user-dirent.o: user/dirent.c $(USER_HEADERS) kernel/core/abi/typephp_os_syscall.h | $(OBJECT_DIR)
+	gcc $(USER_CFLAGS) -c $< -o $@
+
+$(OBJECT_DIR)/user-fcntl.o: user/fcntl.c $(USER_HEADERS) kernel/core/abi/typephp_os_syscall.h | $(OBJECT_DIR)
+	gcc $(USER_CFLAGS) -c $< -o $@
+
 $(OBJECT_DIR)/user-syscall.o: user/syscall.S kernel/core/abi/typephp_os_syscall.h | $(OBJECT_DIR)
 	gcc $(USER_CFLAGS) -c $< -o $@
 
 $(OPENLIBM_SOURCES): | thirdparty
+
+$(COMPILER_RT_SOURCES): | thirdparty
+
+$(COMPILER_RT_OBJECT_DIR)/%.o: thirdparty/compiler-rt/lib/builtins/%.c Makefile
+	@mkdir -p $(@D)
+	gcc $(USER_CFLAGS) -std=c11 -Ithirdparty/compiler-rt/lib/builtins -c $< -o $@
+
+$(COMPILER_RT_LIBRARY): $(COMPILER_RT_OBJECTS) | $(BUILD)
+	$(AR) $(ARFLAGS) $@ $^
 
 $(TYPEPHP_OS_LIBRARY_OBJECT_DIR)/%.o: %.c Makefile
 	@mkdir -p $(@D)
@@ -142,11 +168,11 @@ $(TYPEPHP_OS_LIBRARY): $(TYPEPHP_OS_LIBRARY_OBJECTS) | $(BUILD)
 $(NANO_USER_ELF): $(NANO_USER_SOURCES) | thirdparty $(BUILD)
 	cd ../.. && ./bin/tpc.php --nano examples/typephp-os/user/nano/hello.yml
 
-$(USER_SH_ELF): $(OBJECT_DIR)/sh.o $(USER_CRT0_OBJECT) $(USER_LIBC_OBJECTS) user/linker.ld Makefile | $(BUILD)
-	ld $(USER_LDFLAGS) --defsym USER_BASE=0x40000000 -o $@ $(filter %.o,$^)
+$(USER_SH_ELF): $(OBJECT_DIR)/sh.o $(USER_CRT0_OBJECT) $(USER_LIBC_OBJECTS) $(COMPILER_RT_LIBRARY) user/linker.ld Makefile | $(BUILD)
+	ld $(USER_LDFLAGS) --defsym USER_BASE=0x40000000 -o $@ $(filter %.o,$^) $(COMPILER_RT_LIBRARY)
 
-$(USER_COMMAND_ELFS): $(BUILD)/%.elf: $(OBJECT_DIR)/%.o $(USER_CRT0_OBJECT) $(USER_LIBC_OBJECTS) user/linker.ld Makefile | $(BUILD)
-	ld $(USER_LDFLAGS) --defsym USER_BASE=0x41000000 -o $@ $(filter %.o,$^)
+$(USER_COMMAND_ELFS): $(BUILD)/%.elf: $(OBJECT_DIR)/%.o $(USER_CRT0_OBJECT) $(USER_LIBC_OBJECTS) $(COMPILER_RT_LIBRARY) user/linker.ld Makefile | $(BUILD)
+	ld $(USER_LDFLAGS) --defsym USER_BASE=0x41000000 -o $@ $(filter %.o,$^) $(COMPILER_RT_LIBRARY)
 
 $(KERNEL): payload
 	objcopy -O binary $(PAYLOAD_ELF) $(PAYLOAD_BIN)
