@@ -49,6 +49,7 @@
  * numbers or semantics. */
 #define SYS_typephp_spawn TYPEPHP_SYS_SPAWN
 #define SYS_typephp_rename TYPEPHP_SYS_RENAME
+#define SYS_typephp_memory_info TYPEPHP_SYS_MEMORY_INFO
 
 long syscall(long number, ...);
 

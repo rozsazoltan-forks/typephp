@@ -21,7 +21,7 @@ if timeout 35 qemu-system-x86_64 \
         -no-shutdown \
         -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
         >"${log}" 2>&1 \
-        <<< $'\ndate\nuname\nuname -a\necho Hello TypePHP userspace\nhello Dynamically loaded\ntnhello alpha beta\nsystest\nbuiltins\nmissing\nbad\nls /BIN\ncat HELLO.TXT\ntouch /EXPAND/F62.TXT\nls /EXPAND\nwrite NOTE.TXT Hello from Ring 3\ncat NOTE.TXT\ntouch EMPTY.TXT\nmkdir TMP\nls\nrm NOTE.TXT\ncat NOTE.TXT\nrmdir TMP\ncd TMP\nmkdir WORK\ncd WORK\nwrite NOTE.TXT Nested directory write\ncat NOTE.TXT\nmkdir SUB\ncd SUB\nwrite DEEP.TXT Deep directory write\nmv DEEP.TXT MOVED.TXT\ncat MOVED.TXT\ncat DEEP.TXT\npwd\ncd ..\nrmdir SUB\nrm SUB/MOVED.TXT\nrmdir SUB\nls\nrm NOTE.TXT\ncd ..\nrmdir WORK\ncd WORK\nmemtest\nfault\nvmfault\nwrfault\ndate\npwd\ncd BIN\npwd\nls\ncd ..\ncd DOCS\npwd\nls\ncd ..\nls\n'; then
+        <<< $'\ndate\nuname\nuname -a\nfree\necho Hello TypePHP userspace\nhello Dynamically loaded\ntnhello alpha beta\nsystest\nbuiltins\nmissing\nbad\nls /BIN\ncat HELLO.TXT\ntouch /EXPAND/F62.TXT\nls /EXPAND\nwrite NOTE.TXT Hello from Ring 3\ncat NOTE.TXT\ntouch EMPTY.TXT\nmkdir TMP\nls\nrm NOTE.TXT\ncat NOTE.TXT\nrmdir TMP\ncd TMP\nmkdir WORK\ncd WORK\nwrite NOTE.TXT Nested directory write\ncat NOTE.TXT\nmkdir SUB\ncd SUB\nwrite DEEP.TXT Deep directory write\nmv DEEP.TXT MOVED.TXT\ncat MOVED.TXT\ncat DEEP.TXT\npwd\ncd ..\nrmdir SUB\nrm SUB/MOVED.TXT\nrmdir SUB\nls\nrm NOTE.TXT\ncd ..\nrmdir WORK\ncd WORK\nmemtest\nfault\nvmfault\nwrfault\ndate\npwd\ncd BIN\npwd\nls\ncd ..\ncd DOCS\npwd\nls\ncd ..\nls\n'; then
     status=0
 else
     status=$?
@@ -51,10 +51,15 @@ grep -q "Prime list: 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53,
 grep -q "Process 1: sh.elf (Ring 3)" "${log}"
 grep -q "TypePHP-OS user shell" "${log}"
 grep -q "Ring 3 confirmed" "${log}"
-grep -q "Commands: ls, cd, pwd, date, uname, cat, echo, write, touch, mkdir, rm, rmdir, mv, memtest, systest, builtins, fault, vmfault, wrfault" "${log}"
+grep -q "Commands: ls, cd, pwd, date, uname, free, cat, echo, write, touch, mkdir, rm, rmdir, mv, memtest, systest, builtins, fault, vmfault, wrfault" "${log}"
 grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} UTC' "${log}"
 grep -Fq $'TypePHP-OS\r' "${log}"
 grep -Fq $'TypePHP-OS typephp-os 0.1 TypePHP Nano user mode x86_64\r' "${log}"
+grep -q '^TypePHP-OS memory' "${log}"
+grep -q '^RAM: total=.*used=.*free=' "${log}"
+grep -q '^Kernel Zend arena: total=.*used=.*free=' "${log}"
+grep -q '^Physical page pool: total=.*used=.*free=' "${log}"
+grep -q '^ATA block cache: ' "${log}"
 grep -q '^Hello TypePHP userspace' "${log}"
 grep -q '^Dynamically loaded' "${log}"
 grep -Fq 'Hello World!string(6) "8.4.14"' "${log}"

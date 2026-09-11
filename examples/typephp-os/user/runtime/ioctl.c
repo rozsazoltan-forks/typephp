@@ -2,6 +2,8 @@
 #include <sys/ioctl.h>
 #include <sys/syscall.h>
 
+long syscall(long number, ...);
+
 int ioctl(int fd, unsigned long request, ...)
 {
     void *argument = 0;

@@ -35,6 +35,7 @@ typedef struct typephp_os_aligned_block {
 enum { TYPEPHP_OS_ALIGNED_BLOCK_CAPACITY = 64 };
 
 static uintptr_t arena_cursor;
+static uintptr_t arena_begin;
 static uintptr_t arena_end;
 static typephp_os_aligned_block aligned_blocks[TYPEPHP_OS_ALIGNED_BLOCK_CAPACITY];
 
@@ -95,12 +96,19 @@ void typephp_os_memory_init(void *address, size_t size)
         aligned_blocks[index].allocated = 0;
     }
     if (size > UINTPTR_MAX - begin) {
+        arena_begin = 0;
         arena_cursor = 0;
         arena_end = 0;
         return;
     }
+    arena_begin = begin;
     arena_cursor = begin;
     arena_end = begin + size;
+}
+
+size_t typephp_os_memory_total(void)
+{
+    return arena_end >= arena_begin ? (size_t) (arena_end - arena_begin) : 0;
 }
 
 size_t typephp_os_memory_available(void)
@@ -594,6 +602,12 @@ int vprintf(const char *format, va_list args)
     return written;
 }
 
+int vfprintf(void *stream, const char *format, va_list args)
+{
+    (void) stream;
+    return vprintf(format, args);
+}
+
 int printf(const char *format, ...)
 {
     va_list args;
@@ -653,7 +667,13 @@ __attribute__((noreturn)) void __longjmp_chk(void *environment, int value)
     typephp_os_panic("zend_bailout");
 }
 
-__attribute__((noreturn)) void longjmp(jmp_buf environment, int value)
+/* glibc's fortified setjmp header gives the longjmp C identifier an
+ * __longjmp_chk assembler name at -O2. Use a private C identifier so the
+ * freestanding runtime can intentionally provide both public ABI symbols. */
+__attribute__((noreturn)) void typephp_os_longjmp(jmp_buf environment, int value)
+    __asm__("longjmp");
+
+__attribute__((noreturn)) void typephp_os_longjmp(jmp_buf environment, int value)
 {
     (void) environment;
     (void) value;
@@ -687,11 +707,11 @@ size_t fwrite(const void *data, size_t size, size_t count, void *stream)
 
 int fprintf(void *stream, const char *format, ...)
 {
-    (void) stream;
-    /* Zend's allocator only uses this on fatal paths. Keep the implementation
-     * allocation-free; the complete formatter belongs to the standard layer. */
-    typephp_os_write(format, strlen(format));
-    return (int) strlen(format);
+    va_list args;
+    va_start(args, format);
+    const int result = vfprintf(stream, format, args);
+    va_end(args);
+    return result;
 }
 
 int __fprintf_chk(void *stream, int flag, const char *format, ...)

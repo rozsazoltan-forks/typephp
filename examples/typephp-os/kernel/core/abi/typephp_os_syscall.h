@@ -48,6 +48,7 @@ enum typephp_os_syscall_number {
     TYPEPHP_SYS_FACCESSAT = 269,
     TYPEPHP_SYS_SPAWN = 0x54500001,
     TYPEPHP_SYS_RENAME = 0x54500003,
+    TYPEPHP_SYS_MEMORY_INFO = 0x54500004,
 };
 
 #endif

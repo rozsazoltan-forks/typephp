@@ -185,6 +185,11 @@ namespace std {
 
 const nothrow_t nothrow{};
 
+[[noreturn]] void terminate() noexcept
+{
+    typephp_os_panic("C++ termination");
+}
+
 [[noreturn]] void __throw_length_error(const char *)
 {
     typephp_os_panic("C++ container length error");

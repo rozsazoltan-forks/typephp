@@ -12,6 +12,7 @@ USER_PROGRAMS := sh $(USER_COMMANDS)
 USER_SH_ELF := $(BUILD)/sh.elf
 USER_COMMAND_ELFS := $(addprefix $(BUILD)/,$(addsuffix .elf,$(USER_COMMANDS)))
 NANO_USER_ELF := $(BUILD)/tnhello.elf
+TYPEPHP_FREE_ELF := $(BUILD)/free.elf
 TYPEPHP_OS_LIBRARY := $(BUILD)/libtypephp-os.a
 TYPEPHP_OS_LIBRARY_OBJECT_DIR := $(BUILD)/libtypephp-os
 COMPILER_RT_LIBRARY := $(BUILD)/libcompiler-rt-builtins.a
@@ -23,7 +24,7 @@ COMPILER_RT_SOURCES := $(shell awk '$$2 ~ /\.c$$/ { print "thirdparty/compiler-r
 COMPILER_RT_OBJECTS := $(patsubst thirdparty/compiler-rt/lib/builtins/%.c,$(COMPILER_RT_OBJECT_DIR)/%.o,$(COMPILER_RT_SOURCES))
 TYPEPHP_OS_LIBRARY_C_SOURCES := user/runtime/posix.c user/runtime/dirent.c \
 	user/runtime/fcntl.c user/runtime/ioctl.c kernel/core/abi/error.c kernel/core/abi/string.c \
-	kernel/core/abi/libc.c $(OPENLIBM_SOURCES)
+	user/runtime/memory.c kernel/core/abi/libc.c $(OPENLIBM_SOURCES)
 TYPEPHP_OS_LIBRARY_CXX_SOURCES := user/runtime/host.cc kernel/core/abi/cxx.cpp
 TYPEPHP_OS_LIBRARY_ASM_SOURCES := user/runtime/crt0.S user/runtime/syscall.S \
 	kernel/core/abi/unimplemented.S
@@ -35,12 +36,15 @@ TYPEPHP_OS_LIBRARY_OBJECTS := \
 TYPEPHP_OS_LIBRARY_DEPFILES := $(addsuffix .d,$(TYPEPHP_OS_LIBRARY_OBJECTS))
 NANO_USER_SOURCES := user/nano/hello.php user/nano/hello.yml user/runtime/linker.ld \
 	$(TYPEPHP_OS_LIBRARY) $(COMPILER_RT_LIBRARY)
+TYPEPHP_FREE_SOURCES := user/nano/free.php user/nano/memory.stub.php \
+	user/nano/free.cc user/nano/free.yml user/runtime/linker.ld \
+	$(TYPEPHP_OS_LIBRARY) $(COMPILER_RT_LIBRARY)
 
-BOOTFLAGS := -m32 -O2 -ffreestanding -fno-pic -fno-pie \
+BOOTFLAGS := -m32 -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -ffreestanding -fno-pic -fno-pie \
 	-fno-stack-protector -Wall -Wextra
-KERNEL64_BOOTFLAGS := -m64 -O2 -ffreestanding -fno-builtin -fno-pic -fno-pie \
+KERNEL64_BOOTFLAGS := -m64 -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -ffreestanding -fno-builtin -fno-pic -fno-pie \
 	-fno-stack-protector -mno-red-zone -mcmodel=small -Wall -Wextra
-USER_CFLAGS := -m64 -O2 -ffreestanding -fno-builtin -fno-pic -fno-pie \
+USER_CFLAGS := -m64 -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 -ffreestanding -fno-builtin -fno-pic -fno-pie \
 	-fno-stack-protector -mno-red-zone -Wall -Wextra -Iuser/include -Ikernel/core/abi
 USER_HEADERS := $(shell find user/include -type f)
 USER_LDFLAGS := -m elf_x86_64 -nostdlib -static --undefined=_start \
@@ -56,11 +60,13 @@ TYPEPHP_OS_RUNTIME_INCLUDES := -Ikernel/core/abi \
 	-I$(PHP_NANO_DIR)/include -I$(PHP_NANO_DIR)/main -I$(PHP_NANO_DIR)/TSRM \
 	-I$(PHP_NANO_DIR)/ext/date/lib -I$(PHP_NANO_DIR)/ext/pcre/pcre2lib \
 	-I$(PHPX_DIR)/include -I$(PHPX_DIR)/thirdparty/wren-gc/include
-TYPEPHP_OS_RUNTIME_CFLAGS := -m64 -O0 -std=c11 -ffreestanding -fno-builtin \
+TYPEPHP_OS_RUNTIME_CFLAGS := -m64 -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 \
+	-std=c11 -ffreestanding -fno-builtin \
 	-fno-pic -fno-pie -fno-stack-protector -mno-red-zone -mcmodel=small \
 	-ffunction-sections -fdata-sections -Wall -Wextra \
 	$(TYPEPHP_OS_RUNTIME_DEFINES) $(TYPEPHP_OS_RUNTIME_INCLUDES)
-TYPEPHP_OS_RUNTIME_CXXFLAGS := -m64 -O0 -std=c++17 -ffreestanding -fno-builtin \
+TYPEPHP_OS_RUNTIME_CXXFLAGS := -m64 -O2 -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0 \
+	-std=c++17 -ffreestanding -fno-builtin \
 	-fno-pic -fno-pie -fno-stack-protector -mno-red-zone -mcmodel=small \
 	-fno-rtti -fno-threadsafe-statics -ffunction-sections -fdata-sections \
 	-Wall -Wextra \
@@ -68,6 +74,15 @@ TYPEPHP_OS_RUNTIME_CXXFLAGS := -m64 -O0 -std=c++17 -ffreestanding -fno-builtin \
 TYPEPHP_OS_RUNTIME_ASMFLAGS := -m64 -ffreestanding -fno-pic -fno-pie \
 	-fno-stack-protector -mno-red-zone -mcmodel=small
 ARFLAGS := rcs
+
+# Keep symbol information on the host while installing only compact runtime
+# ELF files into the FAT16 image. GDB can discover the adjacent .debug file
+# through the GNU debug link retained in the stripped executable.
+define STRIP_ELF
+	objcopy --only-keep-debug $(1) $(1).debug
+	strip --strip-all $(1)
+	objcopy --add-gnu-debuglink=$(1).debug $(1)
+endef
 
 .PHONY: all thirdparty thirdparty-smoke compiler-rt-builtins payload objects user-runtime nano-user disk run test clean
 
@@ -83,6 +98,7 @@ compiler-rt-builtins: $(COMPILER_RT_LIBRARY)
 
 payload: thirdparty objects $(COMPILER_RT_LIBRARY)
 	cd ../.. && ./bin/tpc.php --nano examples/typephp-os/project.yml
+	$(call STRIP_ELF,$(PAYLOAD_ELF))
 
 # Startup sources are built explicitly by Make. The 64-bit entry object is
 # injected into tpc's final link through project.yml; the 32-bit Multiboot
@@ -91,11 +107,11 @@ objects: $(BOOTSTRAP_OBJECT) $(KERNEL64_ENTRY_OBJECT)
 
 user-runtime: $(TYPEPHP_OS_LIBRARY)
 
-nano-user: $(TYPEPHP_OS_LIBRARY) $(NANO_USER_ELF)
+nano-user: $(TYPEPHP_OS_LIBRARY) $(NANO_USER_ELF) $(TYPEPHP_FREE_ELF)
 
 disk: $(DISK)
 
-$(DISK): $(USER_SH_ELF) $(USER_COMMAND_ELFS) $(NANO_USER_ELF) | $(BUILD)
+$(DISK): $(USER_SH_ELF) $(USER_COMMAND_ELFS) $(NANO_USER_ELF) $(TYPEPHP_FREE_ELF) | $(BUILD)
 	truncate -s 32M $@
 	mkfs.fat -F 16 -n TYPEPHPOS $@
 	mmd -i $@ ::/BIN
@@ -103,6 +119,7 @@ $(DISK): $(USER_SH_ELF) $(USER_COMMAND_ELFS) $(NANO_USER_ELF) | $(BUILD)
 		mcopy -o -i $@ $(BUILD)/$$program.elf ::/BIN/$$program.elf; \
 	done
 	mcopy -o -i $@ $(NANO_USER_ELF) ::/BIN/TNHELLO.ELF
+	mcopy -o -i $@ $(TYPEPHP_FREE_ELF) ::/BIN/FREE.ELF
 
 $(BUILD):
 	mkdir -p $@
@@ -151,14 +168,21 @@ $(TYPEPHP_OS_LIBRARY): $(TYPEPHP_OS_LIBRARY_OBJECTS) | $(BUILD)
 
 $(NANO_USER_ELF): $(NANO_USER_SOURCES) | thirdparty $(BUILD)
 	cd ../.. && ./bin/tpc.php --nano examples/typephp-os/user/nano/hello.yml
+	$(call STRIP_ELF,$@)
+
+$(TYPEPHP_FREE_ELF): $(TYPEPHP_FREE_SOURCES) | thirdparty $(BUILD)
+	cd ../.. && ./bin/tpc.php --nano examples/typephp-os/user/nano/free.yml
+	$(call STRIP_ELF,$@)
 
 $(USER_SH_ELF): $(OBJECT_DIR)/sh.o $(TYPEPHP_OS_LIBRARY) $(COMPILER_RT_LIBRARY) user/runtime/linker.ld Makefile | $(BUILD)
 	ld $(USER_LDFLAGS) --defsym USER_BASE=0x40000000 -o $@ \
 		$(OBJECT_DIR)/sh.o $(TYPEPHP_OS_LIBRARY) $(COMPILER_RT_LIBRARY)
+	$(call STRIP_ELF,$@)
 
 $(USER_COMMAND_ELFS): $(BUILD)/%.elf: $(OBJECT_DIR)/%.o $(TYPEPHP_OS_LIBRARY) $(COMPILER_RT_LIBRARY) user/runtime/linker.ld Makefile | $(BUILD)
 	ld $(USER_LDFLAGS) --defsym USER_BASE=0x41000000 -o $@ \
 		$(OBJECT_DIR)/$*.o $(TYPEPHP_OS_LIBRARY) $(COMPILER_RT_LIBRARY)
+	$(call STRIP_ELF,$@)
 
 $(KERNEL): payload
 	objcopy -O binary $(PAYLOAD_ELF) $(PAYLOAD_BIN)
@@ -167,13 +191,14 @@ $(KERNEL): payload
 		$(PAYLOAD_BIN) $(PAYLOAD_OBJECT)
 	ld -m elf_i386 -T boot/linker.ld -o $@ \
 		$(BOOTSTRAP_OBJECT) $(PAYLOAD_OBJECT)
+	$(call STRIP_ELF,$@)
 
 run: all
 	qemu-system-x86_64 -m 512M -kernel $(KERNEL) \
 		-drive file=$(DISK),format=raw,if=ide,index=0 \
 		-display none -serial stdio -monitor none -no-reboot -no-shutdown
 
-test: $(KERNEL) $(USER_SH_ELF) $(USER_COMMAND_ELFS) $(NANO_USER_ELF)
+test: $(KERNEL) $(USER_SH_ELF) $(USER_COMMAND_ELFS) $(NANO_USER_ELF) $(TYPEPHP_FREE_ELF)
 	truncate -s 32M $(DISK)
 	mkfs.fat -F 16 -n TYPEPHPOS $(DISK)
 	mmd -i $(DISK) ::/BIN
@@ -181,6 +206,7 @@ test: $(KERNEL) $(USER_SH_ELF) $(USER_COMMAND_ELFS) $(NANO_USER_ELF)
 		mcopy -o -i $(DISK) $(BUILD)/$$program.elf ::/BIN/$$program.elf; \
 	done
 	mcopy -o -i $(DISK) $(NANO_USER_ELF) ::/BIN/TNHELLO.ELF
+	mcopy -o -i $(DISK) $(TYPEPHP_FREE_ELF) ::/BIN/FREE.ELF
 	# An alias not known while linking the kernel verifies disk-based discovery.
 	mcopy -o -i $(DISK) $(BUILD)/echo.elf ::/BIN/hello.elf
 	mcopy -o -i $(DISK) tools/invalid-elf.txt ::/BIN/bad.elf

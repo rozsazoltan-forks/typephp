@@ -90,6 +90,9 @@ behavior.
    Unavailable ABI functions remain explicit panic stubs.
    Fixed-console `ioctl(TIOCGWINSZ)` reports the VGA dimensions while other
    terminal requests return `ENOTTY`; a complete termios subsystem is not implied.
+   A private memory-information snapshot now supports a tpc-built TypePHP
+   `free` command with kernel Zend-arena, page-pool, reservation, and block-cache
+   accounting. Release builds use `-O2` across the kernel and userspace.
    Selected upstream LLVM compiler-rt builtins now provide 128-bit integer
    helper symbols. A five-applet Toybox build is pinned as a porting probe but
    does not yet replace the working userspace commands.
@@ -108,3 +111,9 @@ behavior.
 
 Later architectures may provide different bootstraps and host ABI adapters.
 Generated TypePHP code and PHPX values remain 64-bit on every target.
+
+Pure policy and data-processing work should continue moving to TypePHP. C is
+kept for php-src reuse and narrow ABI/hardware adapters; assembly is kept only
+where the CPU contract requires it. Suitable next migrations include shell
+tokenization/dispatch and higher-level VFS/page-cache policy after the required
+stream and console primitives are exposed to TypePHP userspace.

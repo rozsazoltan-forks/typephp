@@ -19,6 +19,7 @@ extern "C" {
 /* Install the contiguous physical-memory arena used by the libc/POSIX shim.
  * The caller owns page-table setup and must keep the whole region mapped. */
 void typephp_os_memory_init(void *address, size_t size);
+size_t typephp_os_memory_total(void);
 size_t typephp_os_memory_available(void);
 
 /* C++17 global new/delete are supplied by TypePHP OS and allocate

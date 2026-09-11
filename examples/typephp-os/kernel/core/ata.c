@@ -260,6 +260,11 @@ unsigned long typephp_os_disk_cache_misses(void)
     return (unsigned long) ata_cache_miss_count;
 }
 
+unsigned long typephp_os_disk_cache_bytes(void)
+{
+    return (unsigned long) sizeof(ata_cache);
+}
+
 int typephp_os_disk_flush(void)
 {
     if (!ata_wait_not_busy()) {

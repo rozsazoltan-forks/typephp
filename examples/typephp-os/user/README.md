@@ -37,6 +37,12 @@ The resident shell and its standalone C command sources live under `cmd/`.
 Reusable startup, syscall, POSIX/libc, C++ ABI, and math support lives under
 `runtime/` and is emitted only as `build/libtypephp-os.a`.
 
+`nano/free.php` is the first ordinary shell command implemented primarily in
+TypePHP. Its NativeFunction bridge only retrieves the kernel memory snapshot;
+unit conversion, pool accounting, and presentation remain TypePHP code. This
+is the preferred split for future commands: TypePHP owns policy and application
+logic, while C/C++ is limited to the syscall or PHPX boundary.
+
 The current shared userspace runtime provides `syscall`, `read`, `write`, `openat`,
 `open`, `close`, `lseek`, `getcwd`, `chdir`, `mkdir`, `rmdir`, `unlink`,
 `rename`, `stat`, `lstat`, `fstat`, `access`, `fsync`, `fdatasync`, `truncate`,

@@ -8,6 +8,7 @@
 */
 
 #include "typephp_os_abi.h"
+#include "typephp_os_memory.h"
 #include "typephp_os_syscall.h"
 #include "vm.h"
 
@@ -217,6 +218,10 @@ extern void typephp_os_exception_13(void);
 extern void typephp_os_exception_14(void);
 extern int rename(const char *old_path, const char *new_path);
 extern uint64_t physical_page_available(void);
+extern uint64_t physical_page_total(void);
+extern uint64_t physical_memory_bytes(void);
+extern uint64_t physical_kernel_reserved_bytes(void);
+extern unsigned long typephp_os_disk_cache_bytes(void);
 
 static uint64_t gdt[7] __attribute__((aligned(16)));
 static idt_gate idt[256] __attribute__((aligned(16)));
@@ -844,6 +849,23 @@ static long syscall_ioctl(int fd, unsigned long request, void *argument)
     }
 }
 
+static long syscall_memory_info(typephp_os_memory_info *result)
+{
+    typephp_os_memory_info info;
+    if (!user_buffer(result, sizeof(*result))) {
+        return -EFAULT;
+    }
+    info.total_bytes = physical_memory_bytes();
+    info.kernel_reserved_bytes = physical_kernel_reserved_bytes();
+    info.zend_total_bytes = typephp_os_memory_total();
+    info.zend_free_bytes = typephp_os_memory_available();
+    info.page_total_bytes = physical_page_total() * UINT64_C(4096);
+    info.page_free_bytes = physical_page_available() * UINT64_C(4096);
+    info.block_cache_bytes = typephp_os_disk_cache_bytes();
+    memcpy(result, &info, sizeof(info));
+    return 0;
+}
+
 static unsigned int vm_protection(int protection)
 {
     unsigned int flags = 0;
@@ -1331,6 +1353,8 @@ long typephp_os_syscall_dispatch(syscall_frame *frame)
         return syscall_exit(frame, (long) frame->rdi);
     case TYPEPHP_SYS_UNAME:
         return syscall_uname((user_utsname *) frame->rdi);
+    case TYPEPHP_SYS_MEMORY_INFO:
+        return syscall_memory_info((typephp_os_memory_info *) frame->rdi);
     default:
         return -ENOSYS;
     }

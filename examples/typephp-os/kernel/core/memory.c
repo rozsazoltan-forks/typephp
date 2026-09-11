@@ -43,6 +43,7 @@ static uint64_t page_cursor;
 static uint64_t page_begin;
 static uint64_t page_end;
 static uint64_t free_page_head;
+static uint64_t total_pages;
 static uint64_t available_pages;
 
 static uint64_t align_up(uint64_t value, uint64_t alignment)
@@ -61,6 +62,7 @@ void physical_memory_init(uint64_t multiboot_info_address)
     page_begin = 0;
     page_end = 0;
     free_page_head = 0;
+    total_pages = 0;
     available_pages = 0;
 
     if ((info->flags & MULTIBOOT_INFO_MEMORY_MAP) == 0) {
@@ -110,7 +112,8 @@ void physical_memory_init(uint64_t multiboot_info_address)
         page_begin = page_cursor;
         page_end = chunk_end & ~(PAGE_SIZE - 1);
         if (page_end > page_cursor) {
-            available_pages = (page_end - page_cursor) / PAGE_SIZE;
+            total_pages = (page_end - page_cursor) / PAGE_SIZE;
+            available_pages = total_pages;
         }
     }
 }
@@ -149,6 +152,21 @@ void physical_page_free(uint64_t page)
 uint64_t physical_page_available(void)
 {
     return available_pages;
+}
+
+uint64_t physical_page_total(void)
+{
+    return total_pages;
+}
+
+uint64_t physical_memory_bytes(void)
+{
+    return usable_memory_bytes;
+}
+
+uint64_t physical_kernel_reserved_bytes(void)
+{
+    return KERNEL_RESERVED_END;
 }
 
 uint64_t physical_memory_megabytes(void)

@@ -28,6 +28,9 @@ defines:
   - ASSEMBLER=1
   - __BSD_VISIBLE=1
 cxx-flags:
+  - -O2
+  - -U_FORTIFY_SOURCE
+  - -D_FORTIFY_SOURCE=0
   - -ffreestanding
   - -fno-builtin
   - -fno-stack-protector
@@ -39,6 +42,9 @@ cxx-flags:
   - -fno-rtti
   - -fno-threadsafe-statics
 c-flags:
+  - -O2
+  - -U_FORTIFY_SOURCE
+  - -D_FORTIFY_SOURCE=0
   - -ffreestanding
   - -fno-builtin
   - -fno-stack-protector
