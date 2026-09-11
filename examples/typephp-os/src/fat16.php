@@ -21,6 +21,16 @@ final class AtaBlockDevice
     {
         return kernel_disk_flush();
     }
+
+    public function cacheHits(): int
+    {
+        return kernel_disk_cache_hits();
+    }
+
+    public function cacheMisses(): int
+    {
+        return kernel_disk_cache_misses();
+    }
 }
 
 /*
@@ -238,6 +248,125 @@ final class Fat16Volume
         return -1;
     }
 
+    private function directoryEntryLocation(int $directoryCluster, string $fatName): int
+    {
+        if ($directoryCluster === 0) {
+            return $this->rootEntryLocation($fatName);
+        }
+        $cluster = $directoryCluster;
+        $visited = 0;
+        while ($cluster >= 2 && $cluster < 0xfff8 && $visited < $this->clusterCount) {
+            $firstSector = $this->clusterSector($cluster);
+            for ($sectorIndex = 0; $sectorIndex < $this->sectorsPerCluster; $sectorIndex++) {
+                $sectorNumber = $firstSector + $sectorIndex;
+                $sector = $this->device->readSector($sectorNumber);
+                if (strlen($sector) !== 512) {
+                    return -1;
+                }
+                for ($offset = 0; $offset < 512; $offset += 32) {
+                    $first = $this->byteAt($sector, $offset);
+                    if ($first === 0x00) {
+                        return -1;
+                    }
+                    if ($first !== 0xe5 && substr($sector, $offset, 11) === $fatName) {
+                        return $sectorNumber * 512 + $offset;
+                    }
+                }
+            }
+            $cluster = $this->readFat($cluster);
+            $visited++;
+        }
+        return -1;
+    }
+
+    private function pathEntryLocation(string $path): int
+    {
+        $length = strlen($path);
+        $index = 0;
+        $directoryCluster = 0;
+        while ($index < $length && $path[$index] === '/') {
+            $index++;
+        }
+        if ($index === $length) {
+            return -1;
+        }
+        while ($index < $length) {
+            $start = $index;
+            while ($index < $length && $path[$index] !== '/') {
+                $index++;
+            }
+            $name = substr($path, $start, $index - $start);
+            while ($index < $length && $path[$index] === '/') {
+                $index++;
+            }
+            $fatName = $this->fatName($name);
+            if (strlen($fatName) !== 11) {
+                return -1;
+            }
+            $location = $this->directoryEntryLocation($directoryCluster, $fatName);
+            if ($location < 0 || $index === $length) {
+                return $location;
+            }
+            $entry = $this->readEntry($location);
+            if (($this->byteAt($entry, 11) & 0x10) === 0) {
+                return -1;
+            }
+            $directoryCluster = $this->readU16($entry, 26);
+        }
+        return -1;
+    }
+
+    private function pathDirectoryCluster(string $path): int
+    {
+        if ($path === '' || $path === '/' || $path === '.') {
+            return 0;
+        }
+        $location = $this->pathEntryLocation($path);
+        if ($location < 0) {
+            return -1;
+        }
+        $entry = $this->readEntry($location);
+        return ($this->byteAt($entry, 11) & 0x10) !== 0
+            ? $this->readU16($entry, 26)
+            : -1;
+    }
+
+    private function pathWithoutTrailingSlash(string $path): string
+    {
+        $result = $path;
+        while (strlen($result) > 1 && $result[strlen($result) - 1] === '/') {
+            $result = substr($result, 0, strlen($result) - 1);
+        }
+        return $result;
+    }
+
+    private function pathLeafName(string $path): string
+    {
+        $clean = $this->pathWithoutTrailingSlash($path);
+        $lastSlash = -1;
+        for ($index = 0; $index < strlen($clean); $index++) {
+            if ($clean[$index] === '/') {
+                $lastSlash = $index;
+            }
+        }
+        return substr($clean, $lastSlash + 1);
+    }
+
+    private function pathParentCluster(string $path): int
+    {
+        $clean = $this->pathWithoutTrailingSlash($path);
+        $lastSlash = -1;
+        for ($index = 0; $index < strlen($clean); $index++) {
+            if ($clean[$index] === '/') {
+                $lastSlash = $index;
+            }
+        }
+        if ($lastSlash <= 0) {
+            return 0;
+        }
+        return $this->pathDirectoryCluster(substr($clean, 0, $lastSlash));
+    }
+
     private function freeRootEntryLocation(): int
     {
         for ($sectorIndex = 0; $sectorIndex < $this->rootSectorCount; $sectorIndex++) {
@@ -254,6 +383,48 @@ final class Fat16Volume
             }
         }
         return -1;
+    }
+
+    private function freeDirectoryEntryLocation(int $directoryCluster): int
+    {
+        if ($directoryCluster === 0) {
+            return $this->freeRootEntryLocation();
+        }
+        $cluster = $directoryCluster;
+        $lastCluster = -1;
+        $visited = 0;
+        while ($cluster >= 2 && $cluster < 0xfff8 && $visited < $this->clusterCount) {
+            $lastCluster = $cluster;
+            $firstSector = $this->clusterSector($cluster);
+            for ($sectorIndex = 0; $sectorIndex < $this->sectorsPerCluster; $sectorIndex++) {
+                $sectorNumber = $firstSector + $sectorIndex;
+                $sector = $this->device->readSector($sectorNumber);
+                if (strlen($sector) !== 512) {
+                    return -1;
+                }
+                for ($offset = 0; $offset < 512; $offset += 32) {
+                    $first = $this->byteAt($sector, $offset);
+                    if ($first === 0x00 || $first === 0xe5) {
+                        return $sectorNumber * 512 + $offset;
+                    }
+                }
+            }
+            $cluster = $this->readFat($cluster);
+            $visited++;
+        }
+        if ($lastCluster < 2) {
+            return -1;
+        }
+        $newCluster = $this->findFreeCluster(2);
+        if ($newCluster < 0 || !$this->writeFat($newCluster, 0xffff)) {
+            return -1;
+        }
+        if (!$this->clearCluster($newCluster)
+            || !$this->writeFat($lastCluster, $newCluster)) {
+            $this->writeFat($newCluster, 0);
+            return -1;
+        }
+        return $this->clusterSector($newCluster) * 512;
     }
 
     private function readEntry(int $location): string
@@ -355,6 +526,44 @@ final class Fat16Volume
         return true;
     }
 
+    private function deleteEntry(int $location): bool
+    {
+        $sectorNumber = $this->quotient($location, 512);
+        $sector = $this->device->readSector($sectorNumber);
+        if (strlen($sector) !== 512) {
+            return false;
+        }
+        $sector[$location % 512] = chr(0xe5);
+        return $this->device->writeSector($sectorNumber, $sector);
+    }
+
+    private function directoryIsEmpty(int $directoryCluster): bool
+    {
+        $cluster = $directoryCluster;
+        $visited = 0;
+        while ($cluster >= 2 && $cluster < 0xfff8 && $visited < $this->clusterCount) {
+            $firstSector = $this->clusterSector($cluster);
+            for ($sectorIndex = 0; $sectorIndex < $this->sectorsPerCluster; $sectorIndex++) {
+                $sector = $this->device->readSector($firstSector + $sectorIndex);
+                if (strlen($sector) !== 512) {
+                    return false;
+                }
+                for ($offset = 0; $offset < 512; $offset += 32) {
+                    $first = $this->byteAt($sector, $offset);
+                    if ($first === 0x00) {
+                        return true;
+                    }
+                    if ($first !== 0xe5 && $first !== 0x2e) {
+                        return false;
+                    }
+                }
+            }
+            $cluster = $this->readFat($cluster);
+            $visited++;
+        }
+        return true;
+    }
+
     public function hasRootEntry(string $name): bool
     {
         $fatName = $this->fatName($name);
@@ -389,6 +598,126 @@ final class Fat16Volume
         return ($this->byteAt($entry, 11) & 0x10) !== 0
             ? 0
             : $this->readU32($entry, 28);
+    }
+
+    public function pathEntryType(string $path): int
+    {
+        if ($path === '' || $path === '/' || $path === '.') {
+            return 2;
+        }
+        $location = $this->pathEntryLocation($path);
+        if ($location < 0) {
+            return 0;
+        }
+        $entry = $this->readEntry($location);
+        return ($this->byteAt($entry, 11) & 0x10) !== 0 ? 2 : 1;
+    }
+
+    public function pathFileSize(string $path): int
+    {
+        $location = $this->pathEntryLocation($path);
+        if ($location < 0) {
+            return -1;
+        }
+        $entry = $this->readEntry($location);
+        return ($this->byteAt($entry, 11) & 0x10) !== 0
+            ? 0
+            : $this->readU32($entry, 28);
+    }
+
+    public function makePathDirectory(string $path): bool
+    {
+        $name = $this->pathLeafName($path);
+        $fatName = $this->fatName($name);
+        $parentCluster = $this->pathParentCluster($path);
+        if (strlen($fatName) !== 11 || $parentCluster < 0
+            || $this->directoryEntryLocation($parentCluster, $fatName) >= 0) {
+            return false;
+        }
+        $location = $this->freeDirectoryEntryLocation($parentCluster);
+        $cluster = $this->findFreeCluster(2);
+        if ($location < 0 || $cluster < 0 || !$this->writeFat($cluster, 0xffff)
+            || !$this->clearCluster($cluster)) {
+            return false;
+        }
+        $sector = $this->device->readSector($this->clusterSector($cluster));
+        $dot = '.          ';
+        $dotDot = '..         ';
+        for ($index = 0; $index < 11; $index++) {
+            $sector[$index] = $dot[$index];
+            $sector[32 + $index] = $dotDot[$index];
+        }
+        $sector[11] = chr(0x10);
+        $sector[43] = chr(0x10);
+        $this->writeU16($sector, 26, $cluster);
+        $this->writeU16($sector, 58, $parentCluster);
+        if (!$this->device->writeSector($this->clusterSector($cluster), $sector)
+            || !$this->writeEntry($location, $fatName, 0x10, $cluster, 0)) {
+            $this->writeFat($cluster, 0);
+            return false;
+        }
+        return $this->device->flush();
+    }
+
+    public function writePathFile(string $path, string $contents): bool
+    {
+        $fatName = $this->fatName($this->pathLeafName($path));
+        $parentCluster = $this->pathParentCluster($path);
+        if (strlen($fatName) !== 11 || $parentCluster < 0) {
+            return false;
+        }
+        $location = $this->directoryEntryLocation($parentCluster, $fatName);
+        if ($location >= 0) {
+            $oldEntry = $this->readEntry($location);
+            if (($this->byteAt($oldEntry, 11) & 0x10) !== 0
+                || !$this->freeChain($this->readU16($oldEntry, 26))) {
+                return false;
+            }
+        } else {
+            $location = $this->freeDirectoryEntryLocation($parentCluster);
+            if ($location < 0) {
+                return false;
+            }
+        }
+
+        $clusterSize = $this->sectorsPerCluster * 512;
+        $needed = $this->ceilQuotient(strlen($contents), $clusterSize);
+        $clusters = std::vector(Type::Int);
+        $candidate = 2;
+        for ($index = 0; $index < $needed; $index++) {
+            $candidate = $this->findFreeCluster($candidate);
+            if ($candidate < 0) {
+                for ($rollback = 0; $rollback < count($clusters); $rollback++) {
+                    $this->writeFat($clusters[$rollback], 0);
+                }
+                return false;
+            }
+            $clusters[] = $candidate;
+            if (!$this->writeFat($candidate, 0xffff)) {
+                return false;
+            }
+            $candidate++;
+        }
+        for ($index = 0; $index < count($clusters); $index++) {
+            $cluster = $clusters[$index];
+            $next = $index + 1 < count($clusters) ? $clusters[$index + 1] : 0xffff;
+            if (!$this->writeFat($cluster, $next)) {
+                return false;
+            }
+            for ($sectorIndex = 0; $sectorIndex < $this->sectorsPerCluster; $sectorIndex++) {
+                $dataOffset = $index * $clusterSize + $sectorIndex * 512;
+                $part = substr($contents, $dataOffset, 512);
+                if (!$this->device->writeSector(
+                    $this->clusterSector($cluster) + $sectorIndex,
+                    $this->sectorData($part)
+                )) {
+                    return false;
+                }
+            }
+        }
+        $firstCluster = count($clusters) === 0 ? 0 : $clusters[0];
+        return $this->writeEntry($location, $fatName, 0x20, $firstCluster, strlen($contents))
+            && $this->device->flush();
     }
 
     public function makeRootDirectory(string $name): bool
@@ -521,6 +850,38 @@ final class Fat16Volume
         return $remaining === 0 ? $result : '';
     }
 
+    public function readPathFile(string $path): string
+    {
+        $location = $this->pathEntryLocation($path);
+        if ($location < 0) {
+            return '';
+        }
+        $entry = $this->readEntry($location);
+        if (($this->byteAt($entry, 11) & 0x10) !== 0) {
+            return '';
+        }
+        $remaining = $this->readU32($entry, 28);
+        $cluster = $this->readU16($entry, 26);
+        $result = '';
+        $visited = 0;
+        while ($remaining > 0 && $cluster >= 2 && $cluster < 0xfff8
+            && $visited < $this->clusterCount) {
+            $firstSector = $this->clusterSector($cluster);
+            for ($index = 0; $index < $this->sectorsPerCluster && $remaining > 0; $index++) {
+                $sector = $this->device->readSector($firstSector + $index);
+                if (strlen($sector) !== 512) {
+                    return '';
+                }
+                $partLength = $remaining < 512 ? $remaining : 512;
+                $result .= substr($sector, 0, $partLength);
+                $remaining -= $partLength;
+            }
+            $cluster = $this->readFat($cluster);
+            $visited++;
+        }
+        return $remaining === 0 ? $result : '';
+    }
+
     public function removeRootFile(string $name): bool
     {
         $fatName = $this->fatName($name);
@@ -543,6 +904,20 @@ final class Fat16Volume
             && $this->device->flush();
     }
 
+    public function removePathFile(string $path): bool
+    {
+        $location = $this->pathEntryLocation($path);
+        if ($location < 0) {
+            return false;
+        }
+        $entry = $this->readEntry($location);
+        if (($this->byteAt($entry, 11) & 0x10) !== 0
+            || !$this->freeChain($this->readU16($entry, 26))) {
+            return false;
+        }
+        return $this->deleteEntry($location) && $this->device->flush();
+    }
+
     public function renameRootEntry(string $oldName, string $newName): bool
     {
         $oldFatName = $this->fatName($oldName);
@@ -558,6 +933,32 @@ final class Fat16Volume
         $sectorNumber = $this->quotient($location, 512);
         $offset = $location % 512;
         $sector = $this->device->readSector($sectorNumber);
+        for ($index = 0; $index < 11; $index++) {
+            $sector[$offset + $index] = $newFatName[$index];
+        }
+        return $this->device->writeSector($sectorNumber, $sector)
+            && $this->device->flush();
+    }
+
+    public function renamePathEntry(string $oldPath, string $newPath): bool
+    {
+        $oldParent = $this->pathParentCluster($oldPath);
+        $newParent = $this->pathParentCluster($newPath);
+        $newFatName = $this->fatName($this->pathLeafName($newPath));
+        if ($oldParent < 0 || $newParent !== $oldParent || strlen($newFatName) !== 11
+            || $this->directoryEntryLocation($newParent, $newFatName) >= 0) {
+            return false;
+        }
+        $location = $this->pathEntryLocation($oldPath);
+        if ($location < 0) {
+            return false;
+        }
+        $sectorNumber = $this->quotient($location, 512);
+        $offset = $location % 512;
+        $sector = $this->device->readSector($sectorNumber);
+        if (strlen($sector) !== 512) {
+            return false;
+        }
         for ($index = 0; $index < 11; $index++) {
             $sector[$offset + $index] = $newFatName[$index];
         }
@@ -597,6 +998,23 @@ final class Fat16Volume
             && $this->device->flush();
     }
 
+    public function removePathDirectory(string $path): bool
+    {
+        $location = $this->pathEntryLocation($path);
+        if ($location < 0) {
+            return false;
+        }
+        $entry = $this->readEntry($location);
+        if (($this->byteAt($entry, 11) & 0x10) === 0) {
+            return false;
+        }
+        $cluster = $this->readU16($entry, 26);
+        if (!$this->directoryIsEmpty($cluster) || !$this->freeChain($cluster)) {
+            return false;
+        }
+        return $this->deleteEntry($location) && $this->device->flush();
+    }
+
     public function rootEntryNames(): string
     {
         $result = '';
@@ -616,6 +1034,44 @@ final class Fat16Volume
                 }
                 $result .= $this->displayName(substr($sector, $offset, 11)) . chr(10);
             }
+        }
+        return $result;
+    }
+
+    public function pathEntryNames(string $path): string
+    {
+        $directoryCluster = $this->pathDirectoryCluster($path);
+        if ($directoryCluster < 0) {
+            return '';
+        }
+        if ($directoryCluster === 0) {
+            return $this->rootEntryNames();
+        }
+        $result = '';
+        $cluster = $directoryCluster;
+        $visited = 0;
+        while ($cluster >= 2 && $cluster < 0xfff8 && $visited < $this->clusterCount) {
+            $firstSector = $this->clusterSector($cluster);
+            for ($sectorIndex = 0; $sectorIndex < $this->sectorsPerCluster; $sectorIndex++) {
+                $sector = $this->device->readSector($firstSector + $sectorIndex);
+                if (strlen($sector) !== 512) {
+                    return '';
+                }
+                for ($offset = 0; $offset < 512; $offset += 32) {
+                    $first = $this->byteAt($sector, $offset);
+                    if ($first === 0x00) {
+                        return $result;
+                    }
+                    $attributes = $this->byteAt($sector, $offset + 11);
+                    if ($first === 0xe5 || $first === 0x2e || $attributes === 0x0f
+                        || ($attributes & 0x08) !== 0) {
+                        continue;
+                    }
+                    $result .= $this->displayName(substr($sector, $offset, 11)) . chr(10);
+                }
+            }
+            $cluster = $this->readFat($cluster);
+            $visited++;
         }
         return $result;
     }

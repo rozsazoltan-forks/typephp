@@ -6,6 +6,7 @@ sources:
   - freestanding/process-entry.S
   - freestanding/kernel.c
   - freestanding/memory.c
+  - freestanding/vm.c
   - freestanding/process.c
   - freestanding/time.c
   - freestanding/ata.c
@@ -16,13 +17,6 @@ sources:
   - freestanding/abi/cxx.cpp
   - freestanding/abi/unimplemented.S
   - thirdparty/openlibm/src
-objects:
-  - build/objects/sh-image.o
-  - build/objects/ls-image.o
-  - build/objects/cd-image.o
-  - build/objects/date-image.o
-  - build/objects/pwd-image.o
-  - build/objects/fault-image.o
 build-dir: build/generated
 output: build/kernel64.elf
 cxx-std: c++17

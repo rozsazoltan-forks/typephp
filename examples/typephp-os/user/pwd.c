@@ -1,14 +1,17 @@
-#include "syscall.h"
+#include <string.h>
+#include <unistd.h>
 
-void _start(const char *argument)
+int main(int argc, char **argv)
 {
     char cwd[16];
-    (void) argument;
-    if (typephp_syscall(TYPEPHP_SYS_GETCWD, (long) cwd, sizeof(cwd), 0) < 0) {
-        typephp_write("pwd: working directory unavailable\n");
-        typephp_exit(1);
+    (void) argc;
+    (void) argv;
+    if (getcwd(cwd, sizeof(cwd)) == 0) {
+        (void) write(STDERR_FILENO, "pwd: working directory unavailable\n",
+            sizeof("pwd: working directory unavailable\n") - 1);
+        return 1;
     }
-    typephp_write(cwd);
-    typephp_write("\n");
-    typephp_exit(0);
+    (void) write(STDOUT_FILENO, cwd, strlen(cwd));
+    (void) write(STDOUT_FILENO, "\n", 1);
+    return 0;
 }

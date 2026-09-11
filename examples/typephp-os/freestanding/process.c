@@ -9,26 +9,50 @@
 
 #include "typephp_os_abi.h"
 #include "typephp_os_syscall.h"
+#include "vm.h"
 
+#include <errno.h>
+#include <fcntl.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 enum {
     USER_BEGIN = 32u * 1024u * 1024u,
+    USER_COMMAND_BEGIN = 33u * 1024u * 1024u,
+    USER_SHELL_END = USER_COMMAND_BEGIN,
+    USER_COMMAND_END = 34u * 1024u * 1024u,
     USER_END = 36u * 1024u * 1024u,
     USER_STACK = USER_END - 16u,
+    USER_COMMAND_STACK = 35u * 1024u * 1024u - 16u,
+    USER_STACK_SIZE = 64u * 1024u,
+    USER_HEAP_LIMIT = 34u * 1024u * 1024u,
+    USER_MMAP_BEGIN = USER_HEAP_LIMIT,
     USER_CODE_SELECTOR = 0x23,
     USER_DATA_SELECTOR = 0x1b,
     KERNEL_CODE_SELECTOR = 0x08,
     TSS_SELECTOR = 0x28,
     IDT_SYSCALL = 0x80,
+    MAX_USER_ARGUMENTS = 8,
+    USER_PATH_MAX = 128,
 };
 
 enum {
     ELF_PT_LOAD = 1,
+    ELF_PF_X = 1,
+    ELF_PF_W = 2,
     ELF_ET_EXEC = 2,
     ELF_MACHINE_X86_64 = 62,
+};
+
+enum {
+    PROT_READ_VALUE = 1,
+    PROT_WRITE_VALUE = 2,
+    PROT_EXEC_VALUE = 4,
+    MAP_PRIVATE_VALUE = 2,
+    MAP_ANONYMOUS_VALUE = 0x20,
 };
 
 typedef struct __attribute__((packed)) {
@@ -137,23 +161,22 @@ typedef struct {
 typedef struct {
     uint64_t pid;
     int running;
-    char cwd[16];
+    char cwd[USER_PATH_MAX];
     syscall_frame parent_frame;
     int parent_waiting;
+    uint64_t address_space;
+    uint64_t parent_address_space;
+    uint64_t parent_free_pages;
+    uint64_t program_break;
+    uint64_t minimum_break;
+    uint64_t mmap_cursor;
+    uint64_t mmap_limit;
+    uint64_t parent_program_break;
+    uint64_t parent_minimum_break;
+    uint64_t parent_mmap_cursor;
+    uint64_t parent_mmap_limit;
 } process_state;
 
-extern const unsigned char typephp_user_sh_elf_start[];
-extern const unsigned char typephp_user_sh_elf_end[];
-extern const unsigned char typephp_user_ls_elf_start[];
-extern const unsigned char typephp_user_ls_elf_end[];
-extern const unsigned char typephp_user_cd_elf_start[];
-extern const unsigned char typephp_user_cd_elf_end[];
-extern const unsigned char typephp_user_date_elf_start[];
-extern const unsigned char typephp_user_date_elf_end[];
-extern const unsigned char typephp_user_pwd_elf_start[];
-extern const unsigned char typephp_user_pwd_elf_end[];
-extern const unsigned char typephp_user_fault_elf_start[];
-extern const unsigned char typephp_user_fault_elf_end[];
 extern void typephp_os_syscall_entry(void);
 extern void typephp_os_enter_user(uint64_t entry, uint64_t stack);
 extern long typephp_os_time_seconds(void);
@@ -166,6 +189,8 @@ extern void typephp_os_exception_11(void);
 extern void typephp_os_exception_12(void);
 extern void typephp_os_exception_13(void);
 extern void typephp_os_exception_14(void);
+extern int rename(const char *old_path, const char *new_path);
+extern uint64_t physical_page_available(void);
 
 static uint64_t gdt[7] __attribute__((aligned(16)));
 static idt_gate idt[256] __attribute__((aligned(16)));
@@ -184,9 +209,20 @@ static int range_inside(uint64_t address, uint64_t size, uint64_t begin, uint64_
     return address >= begin && size <= end - begin && address <= end - size;
 }
 
+static uint64_t page_align_up(uint64_t value)
+{
+    return (value + UINT64_C(4095)) & ~UINT64_C(4095);
+}
+
+static uint64_t page_align_down(uint64_t value)
+{
+    return value & ~UINT64_C(4095);
+}
+
 static int user_buffer(const void *pointer, size_t size)
 {
-    return range_inside((uint64_t) (uintptr_t) pointer, size, USER_BEGIN, USER_END);
+    return typephp_vm_user_range(typephp_vm_current(),
+        (uint64_t) (uintptr_t) pointer, size, 0);
 }
 
 static size_t bounded_user_string(const char *string, size_t maximum)
@@ -264,86 +300,199 @@ static void install_descriptor_tables(void)
     __asm__ volatile("lidt %0" : : "m"(pointer) : "memory");
 }
 
-static uint64_t load_user_elf(const unsigned char *image, const unsigned char *image_end)
+static int read_exact(int fd, void *buffer, size_t size)
 {
-    const size_t image_size = (size_t) (image_end - image);
-    const elf64_header *header;
-
-    if (image_size < sizeof(elf64_header)) {
-        panic("truncated user ELF\n");
-    }
-    header = (const elf64_header *) image;
-    if (header->ident[0] != 0x7f || header->ident[1] != 'E'
-        || header->ident[2] != 'L' || header->ident[3] != 'F'
-        || header->ident[4] != 2 || header->ident[5] != 1
-        || header->type != ELF_ET_EXEC || header->machine != ELF_MACHINE_X86_64
-        || header->phentsize != sizeof(elf64_program_header)) {
-        panic("invalid user ELF64 header\n");
-    }
-    if (!range_inside(header->phoff,
-            (uint64_t) header->phnum * sizeof(elf64_program_header), 0, image_size)) {
-        panic("invalid user ELF program table\n");
-    }
-
-    for (uint16_t index = 0; index < header->phnum; ++index) {
-        const elf64_program_header *segment = (const elf64_program_header *)
-            (image + header->phoff + (uint64_t) index * sizeof(*segment));
-        if (segment->type != ELF_PT_LOAD) {
-            continue;
+    unsigned char *output = (unsigned char *) buffer;
+    while (size != 0) {
+        ssize_t result = read(fd, output, size);
+        if (result < 0) {
+            return -errno;
         }
-        if (segment->filesz > segment->memsz
-            || !range_inside(segment->offset, segment->filesz, 0, image_size)
-            || !range_inside(segment->vaddr, segment->memsz, USER_BEGIN, USER_END)) {
-            panic("invalid user ELF load segment\n");
+        if (result == 0) {
+            return -ENOEXEC;
         }
-        memcpy((void *) (uintptr_t) segment->vaddr, image + segment->offset, segment->filesz);
-        memset((void *) (uintptr_t) (segment->vaddr + segment->filesz),
-            0, segment->memsz - segment->filesz);
-    }
-    if (!range_inside(header->entry, 1, USER_BEGIN, USER_END)) {
-        panic("invalid user ELF entry\n");
-    }
-    return header->entry;
-}
-
-static int command_image(
-    const char *name,
-    const unsigned char **image,
-    const unsigned char **image_end)
-{
-    if (strcmp(name, "ls") == 0) {
-        *image = typephp_user_ls_elf_start;
-        *image_end = typephp_user_ls_elf_end;
-        return 1;
-    }
-    if (strcmp(name, "cd") == 0) {
-        *image = typephp_user_cd_elf_start;
-        *image_end = typephp_user_cd_elf_end;
-        return 1;
-    }
-    if (strcmp(name, "date") == 0) {
-        *image = typephp_user_date_elf_start;
-        *image_end = typephp_user_date_elf_end;
-        return 1;
-    }
-    if (strcmp(name, "pwd") == 0) {
-        *image = typephp_user_pwd_elf_start;
-        *image_end = typephp_user_pwd_elf_end;
-        return 1;
-    }
-    if (strcmp(name, "fault") == 0) {
-        *image = typephp_user_fault_elf_start;
-        *image_end = typephp_user_fault_elf_end;
-        return 1;
+        output += result;
+        size -= (size_t) result;
     }
     return 0;
 }
 
+static int seek_and_read(int fd, uint64_t offset, void *buffer, size_t size)
+{
+    if (offset > INT64_MAX || lseek(fd, (off_t) offset, SEEK_SET) < 0) {
+        return -errno;
+    }
+    return read_exact(fd, buffer, size);
+}
+
+static int load_user_elf_file(
+    const char *path, uint64_t address_space,
+    uint64_t region_begin, uint64_t region_end,
+    uint64_t *entry, uint64_t *image_end)
+{
+    elf64_header header;
+    uint64_t image_size;
+    int fd = open(path, O_RDONLY);
+    int result = 0;
+    int entry_loaded = 0;
+    uint64_t loaded_end = region_begin;
+
+    if (fd < 0) {
+        return -errno;
+    }
+    {
+        off_t end = lseek(fd, 0, SEEK_END);
+        if (end < 0) {
+            result = -errno;
+            goto done;
+        }
+        image_size = (uint64_t) end;
+    }
+    if (image_size < sizeof(header)) {
+        result = -ENOEXEC;
+        goto done;
+    }
+    result = seek_and_read(fd, 0, &header, sizeof(header));
+    if (result < 0) {
+        goto done;
+    }
+    if (header.ident[0] != 0x7f || header.ident[1] != 'E'
+        || header.ident[2] != 'L' || header.ident[3] != 'F'
+        || header.ident[4] != 2 || header.ident[5] != 1
+        || header.type != ELF_ET_EXEC || header.machine != ELF_MACHINE_X86_64
+        || header.phentsize != sizeof(elf64_program_header)
+        || header.phnum == 0 || header.phnum > 64
+        || !range_inside(header.phoff,
+            (uint64_t) header.phnum * sizeof(elf64_program_header), 0, image_size)) {
+        result = -ENOEXEC;
+        goto done;
+    }
+
+    for (uint16_t index = 0; index < header.phnum; ++index) {
+        elf64_program_header segment;
+        result = seek_and_read(fd,
+            header.phoff + (uint64_t) index * sizeof(segment), &segment, sizeof(segment));
+        if (result < 0) {
+            goto done;
+        }
+        if (segment.type != ELF_PT_LOAD) {
+            continue;
+        }
+        if (segment.filesz > segment.memsz
+            || !range_inside(segment.offset, segment.filesz, 0, image_size)
+            || !range_inside(segment.vaddr, segment.memsz, region_begin, region_end)) {
+            result = -ENOEXEC;
+            goto done;
+        }
+        /* The loader needs temporary write access while copying and clearing
+         * the segment. The final ELF permissions are installed below. */
+        if (segment.memsz != 0 && !typephp_vm_map_user(address_space,
+            segment.vaddr, segment.memsz,
+            TYPEPHP_VM_USER_WRITE
+                | ((segment.flags & ELF_PF_X) != 0 ? TYPEPHP_VM_USER_EXECUTE : 0))) {
+            result = -ENOMEM;
+            goto done;
+        }
+        if (segment.vaddr + segment.memsz > loaded_end) {
+            loaded_end = segment.vaddr + segment.memsz;
+        }
+        result = seek_and_read(fd, segment.offset,
+            (void *) (uintptr_t) segment.vaddr, (size_t) segment.filesz);
+        if (result < 0) {
+            goto done;
+        }
+        memset((void *) (uintptr_t) (segment.vaddr + segment.filesz),
+            0, (size_t) (segment.memsz - segment.filesz));
+        if (segment.memsz != 0 && !typephp_vm_protect_user(address_space,
+            segment.vaddr, segment.memsz,
+            ((segment.flags & ELF_PF_W) != 0 ? TYPEPHP_VM_USER_WRITE : 0)
+                | ((segment.flags & ELF_PF_X) != 0
+                    ? TYPEPHP_VM_USER_EXECUTE : 0))) {
+            result = -ENOMEM;
+            goto done;
+        }
+        if ((segment.flags & ELF_PF_X) != 0
+            && range_inside(header.entry, 1, segment.vaddr, segment.vaddr + segment.memsz)) {
+            entry_loaded = 1;
+        }
+    }
+    if (!entry_loaded || !range_inside(header.entry, 1, region_begin, region_end)) {
+        result = -ENOEXEC;
+        goto done;
+    }
+    *entry = header.entry;
+    *image_end = loaded_end;
+
+done:
+    if (close(fd) < 0 && result == 0) {
+        result = -errno;
+    }
+    return result;
+}
+
+static uint64_t prepare_initial_stack(
+    uint64_t stack_top, size_t argc, const char *const argv[])
+{
+    uint64_t stack = stack_top;
+    uint64_t addresses[MAX_USER_ARGUMENTS];
+    uint64_t *words;
+    size_t index = 0;
+
+    index = argc;
+    while (index != 0) {
+        size_t length;
+        --index;
+        length = strlen(argv[index]) + 1u;
+        stack -= length;
+        memcpy((void *) (uintptr_t) stack, argv[index], length);
+        addresses[index] = stack;
+    }
+
+    /* argc, argv[], NULL, envp NULL, then an AT_NULL auxv entry. */
+    stack = (stack - (argc + 5u) * sizeof(uint64_t)) & ~UINT64_C(0x0f);
+    words = (uint64_t *) (uintptr_t) stack;
+    words[index++] = argc;
+    for (size_t argument = 0; argument < argc; ++argument) {
+        words[index++] = addresses[argument];
+    }
+    words[index++] = 0;
+    words[index++] = 0;
+    words[index++] = 0;
+    words[index] = 0;
+    return stack;
+}
+
+static int command_path(const char *name, char *path, size_t capacity)
+{
+    size_t length = strlen(name);
+    if (length == 0 || length > 8 || capacity < length + sizeof("/BIN/.ELF")) {
+        return 0;
+    }
+    memcpy(path, "/BIN/", sizeof("/BIN/") - 1u);
+    for (size_t index = 0; index < length; ++index) {
+        unsigned char character = (unsigned char) name[index];
+        if (!((character >= 'a' && character <= 'z')
+                || (character >= 'A' && character <= 'Z')
+                || (character >= '0' && character <= '9')
+                || character == '_' || character == '-')) {
+            return 0;
+        }
+        path[index + sizeof("/BIN/") - 1u] = (char) character;
+    }
+    memcpy(path + length + sizeof("/BIN/") - 1u, ".ELF", sizeof(".ELF"));
+    return 1;
+}
+
+static int resolved_path(const char *path, char *resolved, size_t capacity);
+
 static long syscall_getcwd(char *buffer, size_t size)
 {
     size_t length = strlen(foreground_process.cwd) + 1u;
-    if (size < length || !user_buffer(buffer, size)) {
-        return -1;
+    if (!user_buffer(buffer, size)) {
+        return -EFAULT;
+    }
+    if (size < length) {
+        return -ERANGE;
     }
     memcpy(buffer, foreground_process.cwd, length);
     return (long) length;
@@ -351,29 +500,18 @@ static long syscall_getcwd(char *buffer, size_t size)
 
 static long syscall_chdir(const char *path)
 {
-    char normalized[16];
-    size_t length = bounded_user_string(path, sizeof(normalized));
-    if (length == (size_t) -1 || length == 0) {
-        return -1;
+    char normalized[USER_PATH_MAX];
+    if (!resolved_path(path, normalized, sizeof(normalized))) {
+        return -ENOENT;
     }
-    if ((length == 1 && path[0] == '/')
-        || (length == 2 && path[0] == '.' && path[1] == '.')) {
-        normalized[0] = '/';
-        normalized[1] = '\0';
-    } else if (length == 1 && path[0] == '.') {
-        return 0;
-    } else {
-        size_t source = path[0] == '/' ? 1u : 0u;
-        size_t name_length = length - source;
-        if (name_length == 0 || name_length > 12u) {
-            return -1;
+    {
+        long type = typephp_os_fs_path_type(normalized);
+        if (type == 0) {
+            return -ENOENT;
         }
-        normalized[0] = '/';
-        memcpy(normalized + 1, path + source, name_length);
-        normalized[name_length + 1u] = '\0';
-    }
-    if (typephp_os_fs_path_type(normalized) != 2) {
-        return -1;
+        if (type != 2) {
+            return -ENOTDIR;
+        }
     }
     memcpy(foreground_process.cwd, normalized, strlen(normalized) + 1u);
     return 0;
@@ -381,52 +519,322 @@ static long syscall_chdir(const char *path)
 
 static long syscall_readdir(const char *path, char *buffer, size_t capacity)
 {
-    char resolved[16];
+    char resolved[USER_PATH_MAX];
     const char *directory = foreground_process.cwd;
     if (path != 0) {
-        size_t length = bounded_user_string(path, sizeof(resolved));
-        if (length == (size_t) -1) {
-            return -1;
+        if (!resolved_path(path, resolved, sizeof(resolved))) {
+            return -ENOENT;
         }
-        if (length != 0) {
-            memcpy(resolved, path, length + 1u);
-            directory = resolved;
-        }
+        directory = resolved;
     }
     if (!user_buffer(buffer, capacity)) {
-        return -1;
+        return -EFAULT;
     }
     return typephp_os_fs_list(directory, buffer, capacity);
 }
 
-static long syscall_exec(syscall_frame *frame, const char *name, const char *argument)
+static int resolved_path(const char *path, char *resolved, size_t capacity)
 {
-    const unsigned char *image;
-    const unsigned char *image_end;
-    char command[8];
+    size_t length = bounded_user_string(path, capacity);
+    size_t input = 0;
+    size_t output;
+    if (length == (size_t) -1 || length == 0) {
+        return 0;
+    }
+    if (capacity < 2) {
+        return 0;
+    }
+    if (path[0] == '/') {
+        resolved[0] = '/';
+        output = 1;
+    } else {
+        output = strlen(foreground_process.cwd);
+        if (output + 1u > capacity) {
+            return 0;
+        }
+        memcpy(resolved, foreground_process.cwd, output);
+    }
+    while (input < length) {
+        size_t start;
+        size_t component_length;
+        while (input < length && path[input] == '/') {
+            ++input;
+        }
+        if (input == length) {
+            break;
+        }
+        start = input;
+        while (input < length && path[input] != '/') {
+            ++input;
+        }
+        component_length = input - start;
+        if (component_length == 1 && path[start] == '.') {
+            continue;
+        }
+        if (component_length == 2 && path[start] == '.' && path[start + 1u] == '.') {
+            while (output > 1 && resolved[output - 1u] != '/') {
+                --output;
+            }
+            if (output > 1) {
+                --output;
+            }
+            continue;
+        }
+        if (component_length > 12u) {
+            return 0;
+        }
+        if (output > 1) {
+            if (output + 1u >= capacity) {
+                return 0;
+            }
+            resolved[output++] = '/';
+        }
+        if (output + component_length + 1u > capacity) {
+            return 0;
+        }
+        memcpy(resolved + output, path + start, component_length);
+        output += component_length;
+    }
+    resolved[output] = '\0';
+    return 1;
+}
+
+static long posix_syscall_result(long result)
+{
+    return result < 0 ? -errno : result;
+}
+
+static long syscall_openat(long directory_fd, const char *path, int flags, int mode)
+{
+    char resolved[USER_PATH_MAX];
+    int fd;
+    if ((int) directory_fd != AT_FDCWD && (path == 0 || path[0] != '/')) {
+        return -EBADF;
+    }
+    if (!resolved_path(path, resolved, sizeof(resolved))) {
+        return -EFAULT;
+    }
+    fd = open(resolved, flags, mode);
+    return posix_syscall_result(fd);
+}
+
+static long syscall_time(long *result)
+{
+    long seconds = typephp_os_time_seconds();
+    if (result != 0) {
+        if (!user_buffer(result, sizeof(*result))) {
+            return -1;
+        }
+        *result = seconds;
+    }
+    return seconds;
+}
+
+static unsigned int vm_protection(int protection)
+{
+    unsigned int flags = 0;
+    if (protection == 0) {
+        return TYPEPHP_VM_USER_NONE;
+    }
+    if ((protection & PROT_WRITE_VALUE) != 0) {
+        flags |= TYPEPHP_VM_USER_WRITE;
+    }
+    if ((protection & PROT_EXEC_VALUE) != 0) {
+        flags |= TYPEPHP_VM_USER_EXECUTE;
+    }
+    return flags;
+}
+
+static long syscall_brk(uint64_t requested)
+{
+    const uint64_t old_break = foreground_process.program_break;
+    uint64_t old_page;
+    uint64_t new_page;
+    if (requested == 0) {
+        return (long) old_break;
+    }
+    if (requested < foreground_process.minimum_break || requested > USER_HEAP_LIMIT) {
+        return (long) old_break;
+    }
+    old_page = page_align_up(old_break);
+    new_page = page_align_up(requested);
+    if (new_page > old_page) {
+        const uint64_t size = new_page - old_page;
+        if (!typephp_vm_user_range_free(
+                foreground_process.address_space, old_page, size)
+            || !typephp_vm_map_user(foreground_process.address_space,
+                old_page, size, TYPEPHP_VM_USER_WRITE)) {
+            (void) typephp_vm_unmap_user(
+                foreground_process.address_space, old_page, size);
+            return (long) old_break;
+        }
+    } else if (old_page > new_page) {
+        (void) typephp_vm_unmap_user(
+            foreground_process.address_space, new_page, old_page - new_page);
+    }
+    foreground_process.program_break = requested;
+    return (long) requested;
+}
+
+static long syscall_mmap(
+    uint64_t address, uint64_t length, int protection,
+    int flags, int fd, uint64_t offset)
+{
+    uint64_t size;
+    uint64_t selected;
+    uint64_t previous_cursor = foreground_process.mmap_cursor;
+    const int supported_flags = MAP_PRIVATE_VALUE | MAP_ANONYMOUS_VALUE;
+    if (length == 0 || length > UINT64_MAX - UINT64_C(4095)
+        || (protection & ~(PROT_READ_VALUE | PROT_WRITE_VALUE | PROT_EXEC_VALUE)) != 0
+        || (flags & supported_flags) != supported_flags
+        || (flags & ~supported_flags) != 0 || fd != -1 || offset != 0) {
+        return -EINVAL;
+    }
+    size = page_align_up(length);
+    if (address != 0) {
+        selected = page_align_down(address);
+        if (selected < USER_MMAP_BEGIN
+            || selected > foreground_process.mmap_limit
+            || size > foreground_process.mmap_limit - selected
+            || !typephp_vm_user_range_free(
+                foreground_process.address_space, selected, size)) {
+            selected = 0;
+        }
+    } else {
+        selected = 0;
+    }
+    if (selected == 0) {
+        if (size > foreground_process.mmap_cursor - USER_MMAP_BEGIN) {
+            return -ENOMEM;
+        }
+        selected = page_align_down(foreground_process.mmap_cursor - size);
+        if (selected < USER_MMAP_BEGIN
+            || !typephp_vm_user_range_free(
+                foreground_process.address_space, selected, size)) {
+            return -ENOMEM;
+        }
+        foreground_process.mmap_cursor = selected;
+    }
+    if (!typephp_vm_map_user(foreground_process.address_space,
+        selected, size, vm_protection(protection))) {
+        (void) typephp_vm_unmap_user(
+            foreground_process.address_space, selected, size);
+        foreground_process.mmap_cursor = previous_cursor;
+        return -ENOMEM;
+    }
+    return (long) selected;
+}
+
+static long syscall_munmap(uint64_t address, uint64_t length)
+{
+    uint64_t size;
+    if ((address & UINT64_C(4095)) != 0 || length == 0
+        || length > UINT64_MAX - UINT64_C(4095)) {
+        return -EINVAL;
+    }
+    size = page_align_up(length);
+    if (address < USER_MMAP_BEGIN || address > foreground_process.mmap_limit
+        || size > foreground_process.mmap_limit - address) {
+        return -EINVAL;
+    }
+    return typephp_vm_unmap_user(
+        foreground_process.address_space, address, size) ? 0 : -EINVAL;
+}
+
+static long syscall_mprotect(uint64_t address, uint64_t length, int protection)
+{
+    if ((address & UINT64_C(4095)) != 0 || length == 0
+        || length > UINT64_MAX - UINT64_C(4095)
+        || (protection & ~(PROT_READ_VALUE | PROT_WRITE_VALUE | PROT_EXEC_VALUE)) != 0) {
+        return -EINVAL;
+    }
+    return typephp_vm_protect_user(foreground_process.address_space,
+        address, page_align_up(length), vm_protection(protection)) ? 0 : -ENOMEM;
+}
+
+static long syscall_spawn(syscall_frame *frame, const char *const *arguments)
+{
+    uint64_t entry;
+    uint64_t child_address_space;
+    uint64_t parent_address_space;
+    uint64_t image_end;
+    char command[9];
+    char path[32];
+    char argument_storage[MAX_USER_ARGUMENTS][65];
+    const char *kernel_arguments[MAX_USER_ARGUMENTS];
     size_t name_length;
+    size_t argc = 0;
 
     if (foreground_process.parent_waiting) {
         return -1;
     }
-    name_length = bounded_user_string(name, sizeof(command));
-    if (name_length == (size_t) -1 || name_length == 0) {
+    while (argc < MAX_USER_ARGUMENTS) {
+        if (!user_buffer(arguments + argc, sizeof(*arguments))) {
+            return -1;
+        }
+        if (arguments[argc] == 0) {
+            break;
+        }
+        size_t length = bounded_user_string(arguments[argc], 64);
+        if (length == (size_t) -1) {
+            return -1;
+        }
+        memcpy(argument_storage[argc], arguments[argc], length + 1u);
+        kernel_arguments[argc] = argument_storage[argc];
+        ++argc;
+    }
+    if (argc == 0 || argc == MAX_USER_ARGUMENTS) {
         return -1;
     }
-    memcpy(command, name, name_length + 1u);
-    if (!command_image(command, &image, &image_end)) {
+    name_length = strlen(kernel_arguments[0]);
+    if (name_length == 0 || name_length >= sizeof(command)) {
         return -1;
     }
-    if (argument != 0 && bounded_user_string(argument, 64) == (size_t) -1) {
-        return -1;
+    memcpy(command, kernel_arguments[0], name_length + 1u);
+    if (!command_path(command, path, sizeof(path))) {
+        return -ENOENT;
     }
 
+    foreground_process.parent_free_pages = physical_page_available();
+    child_address_space = typephp_vm_create();
+    if (child_address_space == 0
+        || !typephp_vm_map_user(child_address_space,
+            USER_COMMAND_STACK + 16u - USER_STACK_SIZE,
+            USER_STACK_SIZE, TYPEPHP_VM_USER_WRITE)) {
+        if (child_address_space != 0) {
+            typephp_vm_destroy(child_address_space);
+        }
+        return -ENOMEM;
+    }
+    parent_address_space = typephp_vm_current();
+    typephp_vm_activate(child_address_space);
+    {
+        int result = load_user_elf_file(
+            path, child_address_space,
+            USER_COMMAND_BEGIN, USER_COMMAND_END, &entry, &image_end);
+        if (result < 0) {
+            typephp_vm_activate(parent_address_space);
+            typephp_vm_destroy(child_address_space);
+            return result;
+        }
+    }
     memcpy(&foreground_process.parent_frame, frame, sizeof(*frame));
     foreground_process.parent_waiting = 1;
     foreground_process.pid = 2;
-    frame->rip = load_user_elf(image, image_end);
-    frame->rsp = 35u * 1024u * 1024u - 16u;
-    frame->rdi = (uint64_t) (uintptr_t) argument;
+    foreground_process.parent_address_space = parent_address_space;
+    foreground_process.address_space = child_address_space;
+    foreground_process.parent_program_break = foreground_process.program_break;
+    foreground_process.parent_minimum_break = foreground_process.minimum_break;
+    foreground_process.parent_mmap_cursor = foreground_process.mmap_cursor;
+    foreground_process.parent_mmap_limit = foreground_process.mmap_limit;
+    foreground_process.minimum_break = image_end;
+    foreground_process.program_break = image_end;
+    foreground_process.mmap_limit = page_align_down(
+        USER_COMMAND_STACK + 16u - USER_STACK_SIZE);
+    foreground_process.mmap_cursor = foreground_process.mmap_limit;
+    frame->rip = entry;
+    frame->rsp = prepare_initial_stack(USER_COMMAND_STACK, argc, kernel_arguments);
+    frame->rdi = 0;
     frame->rsi = 0;
     frame->rdx = 0;
     return 0;
@@ -434,13 +842,25 @@ static long syscall_exec(syscall_frame *frame, const char *name, const char *arg
 
 static long syscall_exit(syscall_frame *frame, long status)
 {
+    uint64_t child_address_space;
     if (!foreground_process.parent_waiting) {
         foreground_process.running = 0;
         typephp_os_panic("shell process exited\n");
     }
+    child_address_space = foreground_process.address_space;
     memcpy(frame, &foreground_process.parent_frame, sizeof(*frame));
+    foreground_process.address_space = foreground_process.parent_address_space;
+    foreground_process.program_break = foreground_process.parent_program_break;
+    foreground_process.minimum_break = foreground_process.parent_minimum_break;
+    foreground_process.mmap_cursor = foreground_process.parent_mmap_cursor;
+    foreground_process.mmap_limit = foreground_process.parent_mmap_limit;
     foreground_process.parent_waiting = 0;
     foreground_process.pid = 1;
+    typephp_vm_activate(foreground_process.address_space);
+    typephp_vm_destroy(child_address_space);
+    if (physical_page_available() != foreground_process.parent_free_pages) {
+        panic("user address-space page leak\n");
+    }
     return status;
 }
 
@@ -489,17 +909,28 @@ static const char *exception_name(uint64_t vector)
 
 static void restore_shell_after_fault(exception_frame *frame)
 {
+    uint64_t child_address_space = foreground_process.address_space;
     syscall_frame *parent = &foreground_process.parent_frame;
     /* The general-register prefixes of both frame formats are identical. */
     memcpy(frame, parent, offsetof(syscall_frame, rip));
-    frame->rax = (uint64_t) -1;
+    frame->rax = (uint64_t) -EIO;
     frame->rip = parent->rip;
     frame->cs = parent->cs;
     frame->rflags = parent->rflags;
     frame->rsp = parent->rsp;
     frame->ss = parent->ss;
+    foreground_process.address_space = foreground_process.parent_address_space;
+    foreground_process.program_break = foreground_process.parent_program_break;
+    foreground_process.minimum_break = foreground_process.parent_minimum_break;
+    foreground_process.mmap_cursor = foreground_process.parent_mmap_cursor;
+    foreground_process.mmap_limit = foreground_process.parent_mmap_limit;
     foreground_process.parent_waiting = 0;
     foreground_process.pid = 1;
+    typephp_vm_activate(foreground_process.address_space);
+    typephp_vm_destroy(child_address_space);
+    if (physical_page_available() != foreground_process.parent_free_pages) {
+        panic("faulted address-space page leak\n");
+    }
 }
 
 void typephp_os_exception_dispatch(exception_frame *frame)
@@ -536,44 +967,124 @@ long typephp_os_syscall_dispatch(syscall_frame *frame)
 {
     switch (frame->rax) {
     case TYPEPHP_SYS_READ:
-        if (frame->rdi != 0 || !user_buffer((void *) frame->rsi, frame->rdx)) {
-            return -1;
+        if (!user_buffer((void *) frame->rsi, frame->rdx)) {
+            return -EFAULT;
         }
-        return typephp_os_console_read((void *) frame->rsi, frame->rdx);
+        if (frame->rdi == STDIN_FILENO) {
+            return typephp_os_console_read((void *) frame->rsi, frame->rdx);
+        }
+        if (frame->rdi <= STDERR_FILENO) {
+            return -EBADF;
+        }
+        return posix_syscall_result(read(
+            (int) frame->rdi, (void *) frame->rsi, frame->rdx));
     case TYPEPHP_SYS_WRITE:
-        if ((frame->rdi != 1 && frame->rdi != 2)
-            || !user_buffer((void *) frame->rsi, frame->rdx)) {
-            return -1;
+        if (!user_buffer((void *) frame->rsi, frame->rdx)) {
+            return -EFAULT;
         }
-        typephp_os_write((const char *) frame->rsi, frame->rdx);
-        return (long) frame->rdx;
-    case TYPEPHP_SYS_EXEC:
-        return syscall_exec(frame, (const char *) frame->rdi, (const char *) frame->rsi);
+        if (frame->rdi == STDOUT_FILENO || frame->rdi == STDERR_FILENO) {
+            typephp_os_write((const char *) frame->rsi, frame->rdx);
+            return (long) frame->rdx;
+        }
+        if (frame->rdi == STDIN_FILENO) {
+            return -EBADF;
+        }
+        return posix_syscall_result(write(
+            (int) frame->rdi, (const void *) frame->rsi, frame->rdx));
+    case TYPEPHP_SYS_CLOSE:
+        return posix_syscall_result(close((int) frame->rdi));
+    case TYPEPHP_SYS_LSEEK:
+        return posix_syscall_result(lseek(
+            (int) frame->rdi, (off_t) frame->rsi, (int) frame->rdx));
+    case TYPEPHP_SYS_MMAP:
+        return syscall_mmap(frame->rdi, frame->rsi, (int) frame->rdx,
+            (int) frame->r10, (int) frame->r8, frame->r9);
+    case TYPEPHP_SYS_MPROTECT:
+        return syscall_mprotect(frame->rdi, frame->rsi, (int) frame->rdx);
+    case TYPEPHP_SYS_MUNMAP:
+        return syscall_munmap(frame->rdi, frame->rsi);
+    case TYPEPHP_SYS_BRK:
+        return syscall_brk(frame->rdi);
+    case TYPEPHP_SYS_SPAWN:
+        return syscall_spawn(frame, (const char *const *) frame->rdi);
     case TYPEPHP_SYS_GETCWD:
         return syscall_getcwd((char *) frame->rdi, frame->rsi);
     case TYPEPHP_SYS_CHDIR:
         return syscall_chdir((const char *) frame->rdi);
+    case TYPEPHP_SYS_MKDIR: {
+        char resolved[USER_PATH_MAX];
+        if (!resolved_path((const char *) frame->rdi, resolved, sizeof(resolved))) {
+            return -EFAULT;
+        }
+        return posix_syscall_result(mkdir(resolved, (mode_t) frame->rsi));
+    }
+    case TYPEPHP_SYS_RMDIR: {
+        char resolved[USER_PATH_MAX];
+        if (!resolved_path((const char *) frame->rdi, resolved, sizeof(resolved))) {
+            return -EFAULT;
+        }
+        return posix_syscall_result(rmdir(resolved));
+    }
+    case TYPEPHP_SYS_UNLINK: {
+        char resolved[USER_PATH_MAX];
+        if (!resolved_path((const char *) frame->rdi, resolved, sizeof(resolved))) {
+            return -EFAULT;
+        }
+        return posix_syscall_result(unlink(resolved));
+    }
+    case TYPEPHP_SYS_RENAME: {
+        char old_path[USER_PATH_MAX];
+        char new_path[USER_PATH_MAX];
+        if (!resolved_path((const char *) frame->rdi, old_path, sizeof(old_path))
+            || !resolved_path((const char *) frame->rsi, new_path, sizeof(new_path))) {
+            return -EFAULT;
+        }
+        return posix_syscall_result(rename(old_path, new_path));
+    }
     case TYPEPHP_SYS_TIME:
-        return typephp_os_time_seconds();
-    case TYPEPHP_SYS_READDIR:
+        return syscall_time((long *) frame->rdi);
+    case TYPEPHP_SYS_LISTDIR:
         return syscall_readdir((const char *) frame->rdi,
             (char *) frame->rsi, frame->rdx);
+    case TYPEPHP_SYS_OPENAT:
+        return syscall_openat((long) frame->rdi, (const char *) frame->rsi,
+            (int) frame->rdx, (int) frame->r10);
     case TYPEPHP_SYS_EXIT:
         return syscall_exit(frame, (long) frame->rdi);
     default:
-        return -1;
+        return -ENOSYS;
     }
 }
 
 void typephp_os_process_start(void)
 {
     uint64_t entry;
-    memset((void *) (uintptr_t) USER_BEGIN, 0, USER_END - USER_BEGIN);
-    entry = load_user_elf(typephp_user_sh_elf_start, typephp_user_sh_elf_end);
+    uint64_t address_space;
+    uint64_t image_end;
+    static const char *const shell_arguments[] = {"sh"};
+    address_space = typephp_vm_create();
+    if (address_space == 0
+        || !typephp_vm_map_user(address_space,
+            USER_STACK + 16u - USER_STACK_SIZE,
+            USER_STACK_SIZE, TYPEPHP_VM_USER_WRITE)) {
+        panic("unable to create shell address space\n");
+    }
+    typephp_vm_activate(address_space);
+    if (load_user_elf_file("/BIN/SH.ELF", address_space,
+        USER_BEGIN, USER_SHELL_END, &entry, &image_end) < 0) {
+        panic("unable to load /BIN/SH.ELF\n");
+    }
     install_descriptor_tables();
     foreground_process.running = 1;
+    foreground_process.address_space = address_space;
+    foreground_process.minimum_break = image_end;
+    foreground_process.program_break = image_end;
+    foreground_process.mmap_limit = page_align_down(
+        USER_STACK + 16u - USER_STACK_SIZE);
+    foreground_process.mmap_cursor = foreground_process.mmap_limit;
     typephp_os_write("Process 1: sh.elf (Ring 3)\n",
         sizeof("Process 1: sh.elf (Ring 3)\n") - 1);
-    typephp_os_enter_user(entry, USER_STACK);
+    typephp_os_enter_user(entry,
+        prepare_initial_stack(USER_STACK, 1, shell_arguments));
     panic("Ring-3 entry returned\n");
 }

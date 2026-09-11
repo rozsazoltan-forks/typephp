@@ -1,4 +1,6 @@
-#include "syscall.h"
+#include <stddef.h>
+#include <time.h>
+#include <unistd.h>
 
 static int leap_year(long year)
 {
@@ -19,14 +21,14 @@ static void append_four_digits(char *output, size_t *offset, long value)
     output[(*offset)++] = (char) ('0' + value % 10);
 }
 
-void _start(const char *argument)
+int main(int argc, char **argv)
 {
     static const int month_days[] = {
         31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
     };
     char output[25];
     size_t offset = 0;
-    long seconds = typephp_syscall(TYPEPHP_SYS_TIME, 0, 0, 0);
+    long seconds = time(NULL);
     long days;
     long day_seconds;
     long year = 1970;
@@ -34,10 +36,12 @@ void _start(const char *argument)
     int days_in_year;
     int days_in_month;
 
-    (void) argument;
+    (void) argc;
+    (void) argv;
     if (seconds < 0) {
-        typephp_write("date: clock unavailable\n");
-        typephp_exit(1);
+        (void) write(STDERR_FILENO, "date: clock unavailable\n",
+            sizeof("date: clock unavailable\n") - 1);
+        return 1;
     }
     days = seconds / 86400;
     day_seconds = seconds % 86400;
@@ -77,6 +81,6 @@ void _start(const char *argument)
     output[offset++] = 'T';
     output[offset++] = 'C';
     output[offset++] = '\n';
-    typephp_write_bytes(output, offset);
-    typephp_exit(0);
+    (void) write(STDOUT_FILENO, output, offset);
+    return 0;
 }

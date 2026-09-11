@@ -70,12 +70,11 @@ final class KernelFileSystem
         if (!$this->initialize()) {
             return -5;
         }
-        $name = $this->rootName($path);
-        if (strlen($name) === 0) {
-            return -21;
-        }
+        $rootName = $this->rootName($path);
         $volume = $this->volume->toObject(Fat16Volume::class);
-        $type = $volume->rootEntryType($name);
+        $type = strlen($rootName) === 0
+            ? $volume->pathEntryType($path)
+            : $volume->rootEntryType($rootName);
         if ($type === 2) {
             return -21;
         }
@@ -83,10 +82,15 @@ final class KernelFileSystem
         $truncate = ($flags & 512) !== 0;
         $append = ($flags & 1024) !== 0;
         $writable = ($flags & 3) !== 0;
+        $storedName = $path;
         if ($type === 0 && !$create) {
             return -2;
         }
-        $contents = $type === 1 ? $volume->readRootFile($name) : '';
+        $contents = $type === 1
+            ? (strlen($rootName) === 0
+                ? $volume->readPathFile($path)
+                : $volume->readRootFile($rootName))
+            : '';
         if ($truncate && $writable) {
             $contents = '';
         }
@@ -98,7 +102,7 @@ final class KernelFileSystem
                 return -24;
             }
         }
-        $file = new KernelOpenFile($name, $contents, $offset, $writable);
+        $file = new KernelOpenFile($storedName, $contents, $offset, $writable);
         $file->dirty = $type === 0 || ($truncate && $writable);
         $this->files[$fd] = $file;
         return $fd;
@@ -111,8 +115,14 @@ final class KernelFileSystem
         }
         $file = $this->opened($fd);
         $volume = $this->volume->toObject(Fat16Volume::class);
-        if ($file->dirty && !$volume->writeRootFile($file->name, $file->contents)) {
-            return -5;
+        if ($file->dirty) {
+            $rootName = $this->rootName($file->name);
+            $written = strlen($rootName) === 0
+                ? $volume->writePathFile($file->name, $file->contents)
+                : $volume->writeRootFile($rootName, $file->contents);
+            if (!$written) {
+                return -5;
+            }
         }
         unset($this->files[$fd]);
         return 0;
@@ -179,7 +189,11 @@ final class KernelFileSystem
         $file = $this->opened($fd);
         if ($file->dirty) {
             $volume = $this->volume->toObject(Fat16Volume::class);
-            if (!$volume->writeRootFile($file->name, $file->contents)) {
+            $rootName = $this->rootName($file->name);
+            $written = strlen($rootName) === 0
+                ? $volume->writePathFile($file->name, $file->contents)
+                : $volume->writeRootFile($rootName, $file->contents);
+            if (!$written) {
                 return -5;
             }
             $file->dirty = false;
@@ -215,12 +229,15 @@ final class KernelFileSystem
         if ($path === '/' || $path === '') {
             return 0;
         }
-        $name = $this->rootName($path);
+        $rootName = $this->rootName($path);
         $volume = $this->volume->toObject(Fat16Volume::class);
-        if (strlen($name) === 0 || !$volume->hasRootEntry($name)) {
+        if (strlen($rootName) !== 0) {
+            return $volume->hasRootEntry($rootName) ? $volume->rootFileSize($rootName) : -2;
+        }
+        if ($volume->pathEntryType($path) === 0) {
             return -2;
         }
-        return $volume->rootFileSize($name);
+        return $volume->pathFileSize($path);
     }
 
     public function pathType(string $path): int
@@ -231,9 +248,11 @@ final class KernelFileSystem
         if ($path === '/' || $path === '' || $path === '.') {
             return 2;
         }
-        $name = $this->rootName($path);
+        $rootName = $this->rootName($path);
         $volume = $this->volume->toObject(Fat16Volume::class);
-        return strlen($name) === 0 ? 0 : $volume->rootEntryType($name);
+        return strlen($rootName) === 0
+            ? $volume->pathEntryType($path)
+            : $volume->rootEntryType($rootName);
     }
 
     public function fdSize(int $fd): int
@@ -244,45 +263,60 @@ final class KernelFileSystem
     public function makeDirectory(string $path): int
     {
         $name = $this->rootName($path);
-        if (!$this->initialize() || strlen($name) === 0) {
-            return -22;
+        if (!$this->initialize()) {
+            return -5;
         }
         $volume = $this->volume->toObject(Fat16Volume::class);
-        if ($volume->hasRootEntry($name)) {
+        $exists = strlen($name) === 0
+            ? $volume->pathEntryType($path) !== 0
+            : $volume->hasRootEntry($name);
+        if ($exists) {
             return -17;
         }
-        return $volume->makeRootDirectory($name) ? 0 : -5;
+        $created = strlen($name) === 0
+            ? $volume->makePathDirectory($path)
+            : $volume->makeRootDirectory($name);
+        return $created ? 0 : -5;
     }
 
     public function removeDirectory(string $path): int
     {
         $name = $this->rootName($path);
-        if (!$this->initialize() || strlen($name) === 0) {
-            return -22;
+        if (!$this->initialize()) {
+            return -5;
         }
         $volume = $this->volume->toObject(Fat16Volume::class);
-        return $volume->removeRootDirectory($name) ? 0 : -39;
+        $removed = strlen($name) === 0
+            ? $volume->removePathDirectory($path)
+            : $volume->removeRootDirectory($name);
+        return $removed ? 0 : -39;
     }
 
     public function removeFile(string $path): int
     {
         $name = $this->rootName($path);
-        if (!$this->initialize() || strlen($name) === 0) {
-            return -22;
+        if (!$this->initialize()) {
+            return -5;
         }
         $volume = $this->volume->toObject(Fat16Volume::class);
-        return $volume->removeRootFile($name) ? 0 : -2;
+        $removed = strlen($name) === 0
+            ? $volume->removePathFile($path)
+            : $volume->removeRootFile($name);
+        return $removed ? 0 : -2;
     }
 
     public function rename(string $oldPath, string $newPath): int
     {
         $oldName = $this->rootName($oldPath);
         $newName = $this->rootName($newPath);
-        if (!$this->initialize() || strlen($oldName) === 0 || strlen($newName) === 0) {
-            return -22;
+        if (!$this->initialize()) {
+            return -5;
         }
         $volume = $this->volume->toObject(Fat16Volume::class);
-        return $volume->renameRootEntry($oldName, $newName) ? 0 : -2;
+        $renamed = strlen($oldName) !== 0 && strlen($newName) !== 0
+            ? $volume->renameRootEntry($oldName, $newName)
+            : $volume->renamePathEntry($oldPath, $newPath);
+        return $renamed ? 0 : -2;
     }
 
     public function entries(string $path): string
@@ -290,13 +324,9 @@ final class KernelFileSystem
         if (!$this->initialize() || $this->pathType($path) !== 2) {
             return '';
         }
-        if ($path !== '/' && $path !== '' && $path !== '.') {
-            /* The first FAT16 slice has root directory entries but no nested
-             * traversal yet. A root child directory is nevertheless a valid
-             * working directory and contains its logical dot entries. */
-            return ".\n..\n";
-        }
         $volume = $this->volume->toObject(Fat16Volume::class);
-        return ".\n..\n" . $volume->rootEntryNames();
+        return ".\n..\n" . (($path === '/' || $path === '' || $path === '.')
+            ? $volume->rootEntryNames()
+            : $volume->pathEntryNames($path));
     }
 }

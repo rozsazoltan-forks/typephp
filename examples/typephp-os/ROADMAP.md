@@ -36,20 +36,44 @@ behavior.
    classes, generated user classes, construction, properties, and destruction.
 4. **Time service — complete.** CMOS wall clock, monotonic host hook, built-in
    date formatting, and the standard extension's `sleep()` path.
-5. **Filesystem — first slice complete.** ATA PIO, a persistent FAT16 image,
+5. **Filesystem — fourth slice complete.** ATA PIO, a persistent FAT16 image,
    TypePHP-owned cluster/directory/file logic, file descriptors, POSIX
-   directory/stat operations, and PHP's local file stream API. The current
-   implementation is intentionally limited to root-level DOS 8.3 names;
-   nested directories and long filenames are next.
-6. **Single-task userspace — first slice complete.** ELF64 validation/loading,
-   supervisor/user page separation, GDT/TSS, Ring-3 entry, synchronous
+   directory/stat operations, and PHP's local file stream API. DOS 8.3 path
+   lookup, file reads, directory enumeration, file/directory mutation, and
+   same-parent rename traverse nested cluster chains. Directories grow by
+   allocating and linking additional clusters. A fixed 128-sector LRU
+   read/write-through cache now avoids repeated ATA PIO reads while preserving
+   synchronous persistence. A general VFS page cache, cross-directory rename,
+   replacement semantics, and long filenames are next.
+6. **Single-task userspace — third slice complete.** Disk-backed ELF64
+   validation/loading from FAT16,
+   GDT/TSS, Ring-3 entry, synchronous
    `int 0x80` system calls, COM1 standard I/O, saved parent context, shared
-   syscall definitions, reusable command address space, and independent
-   freestanding C `sh`, `ls`, `cd`, `pwd`, and `date` programs.
+   syscall definitions, complete `argv[]`
+   delivery, and independent freestanding C shell/command programs. The first
+   Linux-compatible file syscalls cover `openat`, `read`, `write`, `lseek`,
+   `close`, `mkdir`, `rmdir`, and `unlink`; `cat`, `write`, `touch`, and the
+   directory commands exercise persistent FAT16 changes. The `mv` command
+   exposes same-parent rename through a private syscall until full Linux
+   rename semantics are implemented. The resident shell
+   and every command are independent files under `/BIN` rather than byte arrays embedded in
+   the kernel, and command discovery no longer uses a compiled-in whitelist.
+   Each process now has its own CR3 and recyclable 4 KiB physical pages. ELF
+   segments retain `RX`/`RW` permissions, stacks have an unmapped guard, and
+   NX plus supervisor write protection are enabled. Linux-compatible `brk`,
+   anonymous private `mmap`, `mprotect`, and `munmap` provide the first real
+   userspace memory-management ABI. Ring-3 CPU exceptions terminate a
+   short-lived command and restore the saved shell; `fault.elf`, `vmfault.elf`,
+   and `wrfault.elf` cover invalid-opcode, isolation, and write-protection
+   recovery, while page accounting checks reclamation. The
+   programs use standard C `main(argc, argv)` behind a shared crt0 and receive
+   a Linux-style initial stack; syscall evolution follows the glibc migration
+   rules in `user/README.md`.
 7. **Native Class memory.** Exercise Wren GC through Zend MM and verify tracing
    of PHPX fields under sustained allocation.
-8. **Kernel services.** Interrupt-driven timer, keyboard, physical-page
-   reclamation, and a capability-oriented native API.
+8. **Kernel services.** Interrupt-driven timer and keyboard, higher-level VM
+   region management, Zend-chunk reclamation, and a capability-oriented native
+   API.
 9. **Packaging and CI.** Automate the two-stage ELF32/ELF64 build and QEMU boot
    smoke test in GitHub Actions.
 

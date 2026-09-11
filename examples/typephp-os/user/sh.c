@@ -1,37 +1,31 @@
-#include "syscall.h"
-
-static int string_equal(const char *left, const char *right)
-{
-    while (*left != '\0' && *left == *right) {
-        ++left;
-        ++right;
-    }
-    return *left == *right;
-}
+#include <errno.h>
+#include <string.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 
 static size_t read_line(char *buffer, size_t capacity)
 {
     size_t length = 0;
     while (capacity > 1) {
         char character = 0;
-        if (typephp_syscall(TYPEPHP_SYS_READ, 0, (long) &character, 1) != 1) {
+        if (read(STDIN_FILENO, &character, 1) != 1) {
             continue;
         }
         if (character == '\r' || character == '\n') {
-            typephp_write("\n");
+            (void) write(STDOUT_FILENO, "\n", 1);
             break;
         }
         if (character == 8 || character == 127) {
             if (length != 0) {
                 --length;
-                typephp_write("\b \b");
+                (void) write(STDOUT_FILENO, "\b \b", 3);
             }
             continue;
         }
         if (character >= 32 && character < 127) {
             buffer[length++] = character;
             --capacity;
-            typephp_write_bytes(&character, 1);
+            (void) write(STDOUT_FILENO, &character, 1);
         }
     }
     buffer[length] = '\0';
@@ -40,55 +34,69 @@ static size_t read_line(char *buffer, size_t capacity)
 
 static void show_prompt(void)
 {
-    char cwd[16];
-    typephp_write("typephp-os:");
-    if (typephp_syscall(TYPEPHP_SYS_GETCWD, (long) cwd, sizeof(cwd), 0) > 0) {
-        typephp_write(cwd);
+    char cwd[128];
+    (void) write(STDOUT_FILENO, "typephp-os:", sizeof("typephp-os:") - 1);
+    if (getcwd(cwd, sizeof(cwd)) != 0) {
+        (void) write(STDOUT_FILENO, cwd, strlen(cwd));
     } else {
-        typephp_write("?");
+        (void) write(STDOUT_FILENO, "?", 1);
     }
-    typephp_write("$ ");
+    (void) write(STDOUT_FILENO, "$ ", 2);
 }
 
-void _start(void)
+int main(int argc, char **argv)
 {
     char line[80];
     unsigned short code_selector;
+    (void) argc;
+    (void) argv;
     __asm__ volatile("mov %%cs, %0" : "=r"(code_selector));
     if ((code_selector & 3u) != 3u) {
-        typephp_write("sh: Ring-3 transition failed\n");
-        typephp_exit(1);
+        (void) write(STDERR_FILENO, "sh: Ring-3 transition failed\n",
+            sizeof("sh: Ring-3 transition failed\n") - 1);
+        return 1;
     }
-    typephp_write("TypePHP-OS user shell\n");
-    typephp_write("Ring 3 confirmed\n");
-    typephp_write("Commands: ls, cd <directory>, pwd, date, fault\n");
+    (void) write(STDOUT_FILENO, "TypePHP-OS user shell\n",
+        sizeof("TypePHP-OS user shell\n") - 1);
+    (void) write(STDOUT_FILENO, "Ring 3 confirmed\n",
+        sizeof("Ring 3 confirmed\n") - 1);
+    (void) write(STDOUT_FILENO,
+        "Commands: ls, cd, pwd, date, cat, echo, write, touch, mkdir, rm, rmdir, mv, memtest, fault, vmfault, wrfault\n",
+        sizeof("Commands: ls, cd, pwd, date, cat, echo, write, touch, mkdir, rm, rmdir, mv, memtest, fault, vmfault, wrfault\n") - 1);
     for (;;) {
-        char *argument;
+        char *arguments[9];
+        int argument_count = 0;
+        char *cursor;
         show_prompt();
         if (read_line(line, sizeof(line)) == 0) {
             continue;
         }
-        argument = line;
-        while (*argument != '\0' && *argument != ' ') {
-            ++argument;
-        }
-        if (*argument != '\0') {
-            *argument++ = '\0';
-            while (*argument == ' ') {
-                ++argument;
+        cursor = line;
+        while (*cursor != '\0' && argument_count < 8) {
+            while (*cursor == ' ') {
+                ++cursor;
+            }
+            if (*cursor == '\0') {
+                break;
+            }
+            arguments[argument_count++] = cursor;
+            while (*cursor != '\0' && *cursor != ' ') {
+                ++cursor;
+            }
+            if (*cursor != '\0') {
+                *cursor++ = '\0';
             }
         }
-        if (string_equal(line, "ls") || string_equal(line, "cd")
-            || string_equal(line, "pwd") || string_equal(line, "date")
-            || string_equal(line, "fault")) {
-            if (typephp_syscall(TYPEPHP_SYS_EXEC,
-                    (long) line, (long) argument, 0) < 0) {
-                typephp_write("sh: unable to execute command\n");
-            }
-        } else {
-            typephp_write("sh: command not found: ");
-            typephp_write(line);
-            typephp_write("\n");
+        arguments[argument_count] = 0;
+        if (argument_count == 0) {
+            continue;
+        }
+        if (syscall(SYS_typephp_spawn, arguments) < 0) {
+            (void) write(STDERR_FILENO, "sh: ", sizeof("sh: ") - 1);
+            (void) write(STDERR_FILENO, arguments[0], strlen(arguments[0]));
+            (void) write(STDERR_FILENO, ": ", 2);
+            (void) write(STDERR_FILENO, strerror(errno), strlen(strerror(errno)));
+            (void) write(STDERR_FILENO, "\n", 1);
         }
     }
 }

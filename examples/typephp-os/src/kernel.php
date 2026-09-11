@@ -103,6 +103,13 @@ function runFilesystemSelfCheck(): void
     }
     writeLine('FAT16 file: ' . $actual, 10);
     writeLine('FAT16 root: ' . $volume->rootListing(), 10);
+    $hitsBefore = $device->cacheHits();
+    if ($volume->readRootFile('HELLO.TXT') !== $expected
+        || $device->cacheHits() <= $hitsBefore) {
+        writeLine('FAT16 sector cache: FAILED', 12);
+        return;
+    }
+    writeLine('FAT16 sector cache: OK', 10);
 
     /* Exercise the unchanged PHP standard extension and plain file-stream
      * implementation through the POSIX-to-TypePHP bridge. */
@@ -133,6 +140,7 @@ function runFilesystemSelfCheck(): void
     }
     echo 'PHP file stream: ', $streamActual, "\n";
     echo 'PHP directory scan: ', implode(', ', $entries), "\n";
+
 }
 
 function runPrimeDemo(int $limit): void

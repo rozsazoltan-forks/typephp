@@ -1,15 +1,16 @@
-#include "syscall.h"
+#include <sys/syscall.h>
+#include <unistd.h>
 
-void _start(const char *argument)
+int main(int argc, char **argv)
 {
     char entries[512];
-    const char *path = argument != 0 && argument[0] != '\0' ? argument : 0;
-    long length = typephp_syscall(
-        TYPEPHP_SYS_READDIR, (long) path, (long) entries, sizeof(entries));
+    const char *path = argc > 1 ? argv[1] : 0;
+    long length = syscall(SYS_typephp_listdir, path, entries, sizeof(entries));
     if (length < 0) {
-        typephp_write("ls: cannot read directory\n");
-        typephp_exit(1);
+        (void) write(STDERR_FILENO, "ls: cannot read directory\n",
+            sizeof("ls: cannot read directory\n") - 1);
+        return 1;
     }
-    typephp_write_bytes(entries, (size_t) length);
-    typephp_exit(0);
+    (void) write(STDOUT_FILENO, entries, (size_t) length);
+    return 0;
 }

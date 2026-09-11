@@ -33,6 +33,12 @@ function kernel_disk_write_sector(int $lba, string $data): bool { return false; 
 #[NativeFunction]
 function kernel_disk_flush(): bool { return false; }
 
+#[NativeFunction]
+function kernel_disk_cache_hits(): int { return 0; }
+
+#[NativeFunction]
+function kernel_disk_cache_misses(): int { return 0; }
+
 /** Load the embedded ELF shell and transfer control to its Ring-3 entry. */
 #[NativeFunction]
 function kernel_process_start(): void {}

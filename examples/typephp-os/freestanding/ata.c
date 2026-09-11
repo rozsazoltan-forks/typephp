@@ -9,6 +9,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 enum {
     ATA_DATA = 0x1f0,
@@ -32,11 +33,24 @@ enum {
     ATA_COMMAND_CACHE_FLUSH = 0xe7,
     ATA_SECTOR_SIZE = 512,
     ATA_TIMEOUT = 10000000,
+    ATA_CACHE_CAPACITY = 128,
     PCI_CONFIG_ADDRESS = 0xcf8,
     PCI_CONFIG_DATA = 0xcfc,
 };
 
 static int ata_initialized;
+static uint64_t ata_cache_clock;
+static uint64_t ata_cache_hit_count;
+static uint64_t ata_cache_miss_count;
+
+typedef struct {
+    uint32_t lba;
+    uint64_t last_used;
+    int valid;
+    unsigned char data[ATA_SECTOR_SIZE];
+} ata_cache_entry;
+
+static ata_cache_entry ata_cache[ATA_CACHE_CAPACITY];
 
 static void ata_delay_400ns(void);
 
@@ -156,7 +170,7 @@ int typephp_os_disk_available(void)
     return status != 0xff;
 }
 
-int typephp_os_disk_read_sector(uint32_t lba, unsigned char *data)
+static int ata_read_sector_raw(uint32_t lba, unsigned char *data)
 {
     if (data == 0 || !ata_select_lba(lba)) {
         return 0;
@@ -174,7 +188,7 @@ int typephp_os_disk_read_sector(uint32_t lba, unsigned char *data)
     return ata_wait_not_busy();
 }
 
-int typephp_os_disk_write_sector(uint32_t lba, const unsigned char *data)
+static int ata_write_sector_raw(uint32_t lba, const unsigned char *data)
 {
     if (data == 0 || !ata_select_lba(lba)) {
         return 0;
@@ -188,6 +202,78 @@ int typephp_os_disk_write_sector(uint32_t lba, const unsigned char *data)
         outw(ATA_DATA, (uint16_t) (data[offset] | ((uint16_t) data[offset + 1] << 8u)));
     }
     return ata_wait_not_busy();
+}
+
+static ata_cache_entry *ata_cache_slot(uint32_t lba, int *found)
+{
+    ata_cache_entry *oldest = &ata_cache[0];
+    for (size_t index = 0; index < ATA_CACHE_CAPACITY; ++index) {
+        ata_cache_entry *entry = &ata_cache[index];
+        if (entry->valid && entry->lba == lba) {
+            *found = 1;
+            return entry;
+        }
+        if (!entry->valid) {
+            *found = 0;
+            return entry;
+        }
+        if (entry->last_used < oldest->last_used) {
+            oldest = entry;
+        }
+    }
+    *found = 0;
+    return oldest;
+}
+
+int typephp_os_disk_read_sector(uint32_t lba, unsigned char *data)
+{
+    int found;
+    ata_cache_entry *entry;
+    if (data == 0) {
+        return 0;
+    }
+    entry = ata_cache_slot(lba, &found);
+    if (found) {
+        ++ata_cache_hit_count;
+        entry->last_used = ++ata_cache_clock;
+        memcpy(data, entry->data, ATA_SECTOR_SIZE);
+        return 1;
+    }
+    ++ata_cache_miss_count;
+    if (!ata_read_sector_raw(lba, data)) {
+        return 0;
+    }
+    entry->valid = 1;
+    entry->lba = lba;
+    entry->last_used = ++ata_cache_clock;
+    memcpy(entry->data, data, ATA_SECTOR_SIZE);
+    return 1;
+}
+
+int typephp_os_disk_write_sector(uint32_t lba, const unsigned char *data)
+{
+    int found;
+    ata_cache_entry *entry;
+    if (data == 0 || !ata_write_sector_raw(lba, data)) {
+        return 0;
+    }
+    entry = ata_cache_slot(lba, &found);
+    (void) found;
+    entry->valid = 1;
+    entry->lba = lba;
+    entry->last_used = ++ata_cache_clock;
+    memcpy(entry->data, data, ATA_SECTOR_SIZE);
+    return 1;
+}
+
+unsigned long typephp_os_disk_cache_hits(void)
+{
+    return (unsigned long) ata_cache_hit_count;
+}
+
+unsigned long typephp_os_disk_cache_misses(void)
+{
+    return (unsigned long) ata_cache_miss_count;
 }
 
 int typephp_os_disk_flush(void)

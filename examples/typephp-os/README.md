@@ -6,9 +6,9 @@ PHP, libc, or libstdc++. TypePHP implements the startup self-check, a custom
 Zend class, the prime-number demo, and filesystem services. Small C and
 assembly layers provide the machine bootstrap, current kernel services, and
 the temporary freestanding userspace programs.
-The first userspace programs (`sh`, `ls`, `cd`, `pwd`, and `date`) are
-deliberately written in freestanding C until tpc can target this small
-userspace ABI.
+The userspace shell and commands are deliberately written in freestanding C
+until tpc can target this small userspace ABI. They already use standard
+`main()`, libc-shaped APIs, and a Linux-style process-entry stack.
 
 The architectural rules and staged plan are maintained in
 [ROADMAP.md](ROADMAP.md).
@@ -28,6 +28,8 @@ C/POSIX and C++ ABI functions live there, while APIs required for linking but
 not implemented by the kernel are exported as panic stubs. Consequently an
 unsupported operation fails immediately with its ABI symbol instead of
 silently returning fabricated data. Sockets are outside the current scope.
+On a fresh checkout, run `examples/typephp-os/tools/fetch-thirdparty.sh` before
+invoking tpc directly; `make payload` performs both steps automatically.
 
 Cross-project portability uses general feature switches only:
 
@@ -48,7 +50,11 @@ only excluded capability is dynamic PHP execution through ZendVM.
 ## Build and run
 
 Required host tools are TypePHP's PHP/Composer dependencies, GCC/G++, GNU
-binutils, GNU make, `dosfstools`, and `qemu-system-x86_64`.
+binutils, GNU make, `dosfstools`, `mtools`, and `qemu-system-x86_64`.
+Third-party source is not committed. `make` invokes
+[`tools/fetch-thirdparty.sh`](tools/fetch-thirdparty.sh), which downloads fixed
+archives and verifies their SHA-256 checksums according to
+[`THIRDPARTY.md`](THIRDPARTY.md).
 
 From this directory, build and boot with:
 
@@ -62,9 +68,10 @@ The build produces these useful files:
 - `build/kernel64.elf`: the 64-bit TypePHP + ordinary Nano payload produced by
   tpc;
 - `build/typephp-os.elf`: the final Multiboot kernel accepted by QEMU;
-- `build/typephp-os.img`: a persistent 32 MiB FAT16 disk image.
-- `build/sh.elf`, `build/ls.elf`, `build/cd.elf`, `build/pwd.elf`, and
-  `build/date.elf`: independent ELF64 Ring-3 programs built without libc.
+- `build/typephp-os.img`: a persistent 32 MiB FAT16 disk image containing the
+  independently built shell and command executables;
+- `build/sh.elf` and the command ELF files: independent ELF64 Ring-3 programs
+  linked with the small userspace bootstrap libc rather than a hosted libc.
 
 Run the automated serial-output smoke test with:
 
@@ -74,12 +81,12 @@ make test
 
 The Makefile compiles the 32-bit Multiboot bootstrap externally because its
 `-m32` ABI cannot participate in the 64-bit payload link. It also builds the
-five deliberately small freestanding C userspace ELF files. All ordinary
+deliberately small freestanding C userspace ELF files and installs them into
+the FAT16 image with `mcopy`. All ordinary
 64-bit `.c`, `.cc`, and `.S` files remain in `project.yml` and use tpc's generic
-`c-flags`, `cxx-flags`, and `asm-flags`. Generic same-ABI prebuilt objects can
-be supplied with `objects`; this is how read-only copies of the user ELF files
-are embedded for the kernel ELF loader. The architecture-changing bootstrap is
-instead combined during the final packaging link.
+`c-flags`, `cxx-flags`, and `asm-flags`. The user executables are not linked
+into the kernel payload. The architecture-changing bootstrap is combined
+during the final packaging link.
 
 After tpc emits `kernel64.elf`, the Makefile uses `objcopy` to turn the payload
 into a raw binary and then an ELF32 data object. GNU ld combines that object
@@ -101,10 +108,12 @@ Press `Ctrl+C` to leave headless QEMU.
 ## Current capabilities
 
 The bootstrap passes the Multiboot memory map to the 64-bit kernel. The
-physical layer reserves the complete kernel image, selects mapped usable RAM,
-and installs the remaining arena behind the project-owned `posix_memalign()`.
-Upstream `zend_alloc` then obtains and subdivides aligned 2 MiB chunks. C++
-global `new` and `delete`, including `std::vector` allocations, use Zend MM.
+physical layer reserves the complete kernel image and divides the selected
+usable region into two pools. Upstream `zend_alloc` obtains aligned 2 MiB
+chunks from one pool through the project-owned `posix_memalign()`; the other
+pool is a recyclable 4 KiB physical-page allocator used by page tables, ELF
+images, stacks, `brk()`, and `mmap()`. C++ global `new` and `delete`, including
+`std::vector` allocations, continue to use Zend MM.
 
 The QEMU smoke test currently verifies:
 
@@ -113,42 +122,78 @@ The QEMU smoke test currently verifies:
 - PHPX `Variant`, `Str`, `Array`, custom classes, and a typed
   `std::vector<int>`;
 - OpenLibm implementations of the ordinary double-precision math ABI;
-- built-in date handling and `sleep()` through Zend Bridge;
-- ATA PIO sector I/O and a TypePHP FAT16 implementation with 8.3 root files
-  and directories;
+- RTC-derived UTC time exposed to userspace through `time()`;
+- ATA PIO sector I/O, a fixed 128-sector LRU read/write-through cache, and a
+  TypePHP FAT16 implementation with DOS 8.3 files, nested traversal and
+  mutation, including automatic directory-chain growth;
 - PHP's unchanged plain file stream and `php_stat()` paths, including
   `file_put_contents()`, `file_get_contents()`, `is_dir()`, `mkdir()`, and
   `scandir()`, forwarded through the POSIX ABI to TypePHP;
 - normal PHP output through multi-argument `echo` and `PHPWRITE`;
 - a TypePHP prime calculation for 0–100;
-- a resident loop that prints the RTC-derived UTC time and
-  `Hello TypePHP-OS!` every two seconds.
+- disk-backed ELF64 loading, Linux-style `argc/argv` startup, and libc-shaped
+  userspace calls;
+- a separate x86-64 address space for the resident shell and every command,
+  4 KiB user mappings, a guarded 64 KiB stack, NX/WP enforcement, and ELF
+  `RX`/`RW` segment permissions;
+- Linux-numbered `brk`, anonymous private `mmap`, `mprotect`, and `munmap`
+  calls backed by recyclable physical pages;
+- dynamic command discovery and safe rejection of malformed ELF files;
+- recovery from invalid opcodes, cross-address-space reads, and writes to
+  read-only mappings without losing the resident shell;
+- user-mode file creation, reading, writing, seeking, closing, removal, and
+  nested directory creation/removal through the TypePHP FAT16 implementation.
 
-The 64-bit payload currently occupies about 7 MiB, so the first 16 MiB is
-reserved before physical memory is handed to Zend MM. Returning entire Zend
-chunks to a future physical page allocator remains later work.
+The 64-bit payload currently occupies about 7 MiB. The first 40 MiB is kept
+away from both allocators, covering the kernel and the current 32–36 MiB user
+virtual-address window. Entire Zend chunks are not yet returned to the
+physical-page pool.
 
-The first filesystem milestone deliberately supports only the FAT16 root
-directory and DOS 8.3 names. Nested path traversal, long filenames,
-timestamps, permissions, and a general block-device layer remain future work.
+The current filesystem deliberately supports only DOS 8.3 names. Reading,
+directory enumeration, `stat`, executable loading, and file/directory mutation
+traverse nested FAT16 directory chains. Full directories grow by linking a new
+cluster. The current ATA cache is deliberately small, synchronous, and
+write-through; it is not yet a general virtual-filesystem page cache. Rename
+currently stays within one parent directory; cross-directory rename,
+replacement semantics, long filenames, timestamps, permissions, and a general
+block-device layer remain future work.
 Network sockets, dynamic module loading, `include`/`require`/`eval`, and PHP
 APIs that execute host commands remain unavailable.
 
 ## Single-task userspace
 
-After the TypePHP self-check, the kernel validates and loads `sh.elf`, installs
-a 64-bit TSS and an IDT gate, and enters Ring 3 with `iretq`. The user pages at
-32-36 MiB are marked user-accessible while kernel pages remain supervisor-only.
-An `int 0x80` boundary currently provides synchronous `read`, `write`, `exec`,
-`exit`, `getcwd`, `chdir`, `time`, and directory-list operations. Standard
+After the TypePHP self-check, the kernel opens `/BIN/SH.ELF` from FAT16,
+validates and loads its `PT_LOAD` segments, installs a 64-bit TSS and an IDT
+gate, and enters Ring 3 with `iretq`. The resident shell and each transient
+command receive an independent CR3. Their 32–36 MiB virtual window is composed
+from recyclable 4 KiB pages; the shared identity-mapped kernel remains
+supervisor-only. The CPU has write protection and no-execute enabled, and the
+loader applies the final ELF `PF_W` and `PF_X` permissions after copying each
+segment.
+An `int 0x80` boundary currently provides synchronous `read`, `write`, `close`,
+`lseek`, `openat`, `exit`, `getcwd`, `chdir`, `mkdir`, `rmdir`, `unlink`,
+`time`, `brk`, anonymous private `mmap`, `mprotect`, `munmap`, and private
+spawn, directory-list, and same-directory rename operations. Standard
 input and output are backed by QEMU's COM1 serial console. Syscall numbers are
 shared by the kernel and userspace through `typephp_os_syscall.h`.
 
-The shell synchronously executes separate `ls.elf`, `cd.elf`, `pwd.elf`, and
-`date.elf` images. Short-lived commands reuse one ELF load address; only the
-resident shell has a separate image and stack. Only one user context runs at a
-time: while a command is active, the kernel keeps the shell register frame and
-restores it when the command calls `exit`.
+Userspace programs now expose standard C `main(argc, argv)` functions. A shared
+`crt0.S` consumes a Linux-style initial stack containing `argc`, `argv`, an
+empty environment, and a terminating auxiliary-vector entry. The normative
+userspace compatibility rules are recorded in [`user/README.md`](user/README.md):
+the long-term target is GCC/glibc-compatible userspace, and Linux syscall
+numbers are reserved for genuinely compatible semantics.
+
+The shell synchronously executes separate command ELF files from FAT16.
+Entering `name` requests `/BIN/<name>.ELF`; the kernel validates the ELF header,
+program table, file bounds, target address range, and entry point before
+loading it. There is no compiled-in command whitelist, so a compatible command
+can be installed in the disk image without relinking the kernel. Commands may
+reuse the same virtual addresses, but never the shell's mappings: every launch
+creates and later destroys an independent address space and stack. A page-count
+invariant detects leaked command pages on both normal exit and faults. Only one
+user context runs at a time: while a command is active, the kernel keeps the
+shell register frame and restores it when the command calls `exit`.
 Because this is a deliberately single-task model, the working directory is a
 session-global property; a successful `cd` therefore remains visible after
 control returns to the shell.
@@ -159,12 +204,32 @@ Available commands are:
 ls
 date
 pwd
+echo Hello TypePHP
+cat HELLO.TXT
+write NOTE.TXT Hello from Ring 3
+cat NOTE.TXT
+touch EMPTY.TXT
+mkdir TMP
+rm NOTE.TXT
+rmdir TMP
+mv OLD.TXT NEW.TXT
 cd DOCS
 pwd
 ls
 cd ..
 ```
 
-The current FAT16 limitation still applies: a root child such as `/DOCS` is a
-valid working directory, but nested directory storage is not implemented, so
-its listing currently contains only `.` and `..`.
+The development-only `fault`, `vmfault`, and `wrfault` commands exercise an
+invalid opcode, an attempted read from the shell's virtual address, and an
+attempted write to a read-only `mmap()` page. The kernel reports each Ring-3
+exception, destroys the faulty address space, and restores the shell. The
+`memtest` command exercises `sbrk()`, anonymous mapping, protection changes,
+and unmapping. User exceptions for divide errors, breakpoints, bounds, invalid
+opcodes, invalid TSS/segments, stack faults, general-protection faults, and
+page faults have IDT entries. A fault raised in Ring 0 still causes an
+immediate kernel panic.
+
+Executables now live in the conventional `/BIN` directory and both `ls /BIN`
+and `cd /BIN` use TypePHP's FAT16 cluster-chain traversal. The same path
+resolution is used by `cat`, `write`, `touch`, `mkdir`, `rm`, and `rmdir`, so
+nested directory trees are mutable from userspace.

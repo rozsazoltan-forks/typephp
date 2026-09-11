@@ -1,11 +1,12 @@
-#include "syscall.h"
+#include <unistd.h>
 
-void _start(const char *argument)
+int main(int argc, char **argv)
 {
-    const char *path = argument != 0 && argument[0] != '\0' ? argument : "/";
-    if (typephp_syscall(TYPEPHP_SYS_CHDIR, (long) path, 0, 0) != 0) {
-        typephp_write("cd: no such directory\n");
-        typephp_exit(1);
+    const char *path = argc > 1 ? argv[1] : "/";
+    if (chdir(path) != 0) {
+        (void) write(STDERR_FILENO, "cd: no such directory\n",
+            sizeof("cd: no such directory\n") - 1);
+        return 1;
     }
-    typephp_exit(0);
+    return 0;
 }

@@ -72,14 +72,14 @@ map_page:
     mov $pml4_table, %eax
     mov %eax, %cr3
 
-    # Set EFER.LME, then enable paging. Protected mode is already active.
+    # Enable long mode and execute-disable page permissions.
     mov $0xc0000080, %ecx
     rdmsr
-    or $0x100, %eax
+    or $0x900, %eax
     wrmsr
 
     mov %cr0, %eax
-    or $0x80000000, %eax
+    or $0x80010000, %eax
     mov %eax, %cr0
 
     lgdt gdt64_pointer

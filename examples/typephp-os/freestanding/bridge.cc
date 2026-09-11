@@ -19,6 +19,8 @@ extern "C" int typephp_os_disk_available();
 extern "C" int typephp_os_disk_read_sector(uint32_t lba, unsigned char *data);
 extern "C" int typephp_os_disk_write_sector(uint32_t lba, const unsigned char *data);
 extern "C" int typephp_os_disk_flush();
+extern "C" unsigned long typephp_os_disk_cache_hits();
+extern "C" unsigned long typephp_os_disk_cache_misses();
 extern "C" void typephp_os_process_start();
 
 extern "C" ZEND_NORETURN void phpx_no_exception_abort(const char *fallback)
@@ -138,6 +140,16 @@ php::Bool php_kernel_disk_write_sector(php::Int lba, php::Str data)
 php::Bool php_kernel_disk_flush()
 {
     return typephp_os_disk_flush() != 0;
+}
+
+php::Int php_kernel_disk_cache_hits()
+{
+    return static_cast<php::Int>(typephp_os_disk_cache_hits());
+}
+
+php::Int php_kernel_disk_cache_misses()
+{
+    return static_cast<php::Int>(typephp_os_disk_cache_misses());
 }
 
 void php_kernel_process_start()
