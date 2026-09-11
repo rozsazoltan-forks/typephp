@@ -287,8 +287,14 @@ final class KernelFileSystem
 
     public function entries(string $path): string
     {
-        if (!$this->initialize() || ($path !== '/' && $path !== '' && $path !== '.')) {
+        if (!$this->initialize() || $this->pathType($path) !== 2) {
             return '';
+        }
+        if ($path !== '/' && $path !== '' && $path !== '.') {
+            /* The first FAT16 slice has root directory entries but no nested
+             * traversal yet. A root child directory is nevertheless a valid
+             * working directory and contains its logical dot entries. */
+            return ".\n..\n";
         }
         $volume = $this->volume->toObject(Fat16Volume::class);
         return ".\n..\n" . $volume->rootEntryNames();

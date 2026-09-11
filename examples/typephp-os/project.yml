@@ -3,8 +3,10 @@ mode: bin
 sources:
   - src
   - freestanding/kernel64-entry.S
+  - freestanding/process-entry.S
   - freestanding/kernel.c
   - freestanding/memory.c
+  - freestanding/process.c
   - freestanding/time.c
   - freestanding/ata.c
   - freestanding/zend-allocator.c
@@ -14,6 +16,10 @@ sources:
   - freestanding/abi/cxx.cpp
   - freestanding/abi/unimplemented.S
   - thirdparty/openlibm/src
+objects:
+  - build/objects/sh-image.o
+  - build/objects/ls-image.o
+  - build/objects/cd-image.o
 build-dir: build/generated
 output: build/kernel64.elf
 cxx-std: c++17

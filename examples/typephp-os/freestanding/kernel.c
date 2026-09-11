@@ -44,6 +44,22 @@ static void serial_put(uint8_t value)
     outb(COM1, value);
 }
 
+long typephp_os_console_read(void *buffer, unsigned long size)
+{
+    uint8_t *output = (uint8_t *) buffer;
+    if (output == 0 || size == 0) {
+        return 0;
+    }
+    /* COM1 is the standard input device for the headless QEMU target. Keep
+     * this synchronous: the process model intentionally has one foreground
+     * task and no scheduler yet. */
+    while ((inb(COM1 + 5) & 0x01u) == 0) {
+        __asm__ volatile("pause");
+    }
+    output[0] = inb(COM1);
+    return 1;
+}
+
 static void vga_scroll(void)
 {
     if (row < VGA_HEIGHT) {

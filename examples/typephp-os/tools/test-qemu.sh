@@ -15,7 +15,8 @@ if timeout 8 qemu-system-x86_64 \
         -no-reboot \
         -no-shutdown \
         -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
-        >"${log}" 2>&1; then
+        >"${log}" 2>&1 \
+        <<< $'\nls\ncd DOCS\nls\ncd ..\nls\n'; then
     status=0
 else
     status=$?
@@ -42,4 +43,10 @@ grep -q "Calculate primes: 0-100" "${log}"
 grep -q "Prime count: 25" "${log}"
 grep -q "Prime list: 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97" "${log}"
 grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} Hello TypePHP-OS![[:space:]]*$' "${log}"
+grep -q "Process 1: sh.elf (Ring 3)" "${log}"
+grep -q "TypePHP-OS user shell" "${log}"
+grep -q "Ring 3 confirmed" "${log}"
+grep -Fq 'typephp-os:/$ ' "${log}"
+grep -Fq 'typephp-os:/DOCS$ ' "${log}"
+grep -q '^HELLO.TXT' "${log}"
 cat "${log}"

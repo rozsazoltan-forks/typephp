@@ -155,6 +155,30 @@ php::Bool php_kernel_fs_install(php::Object filesystem)
     return installed_filesystem.isObject();
 }
 
+extern "C" long typephp_os_fs_path_type(const char *path)
+{
+    if (path == nullptr) {
+        return -EFAULT;
+    }
+    return static_cast<long>(fs_type(php::Str(path)));
+}
+
+extern "C" long typephp_os_fs_list(const char *path, char *buffer, size_t capacity)
+{
+    if (path == nullptr || (buffer == nullptr && capacity != 0)) {
+        return -EFAULT;
+    }
+    if (fs_type(php::Str(path)) != 2) {
+        return -ENOTDIR;
+    }
+    php::Str entries = fs_entries(php::Str(path));
+    const size_t size = entries.length() < capacity ? entries.length() : capacity;
+    if (size != 0) {
+        std::memcpy(buffer, entries.data(), size);
+    }
+    return static_cast<long>(size);
+}
+
 extern "C" int open(const char *path, int flags, ...)
 {
     if (path == nullptr) {
@@ -179,7 +203,7 @@ extern "C" ssize_t read(int fd, void *buffer, size_t count)
         return -1;
     }
     if (fd == STDIN_FILENO) {
-        return 0;
+        return static_cast<ssize_t>(typephp_os_console_read(buffer, count));
     }
     const php::Int size = fs_fd_size(fd);
     if (size < 0) {

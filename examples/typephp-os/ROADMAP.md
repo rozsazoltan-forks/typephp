@@ -41,11 +41,15 @@ behavior.
    directory/stat operations, and PHP's local file stream API. The current
    implementation is intentionally limited to root-level DOS 8.3 names;
    nested directories and long filenames are next.
-6. **Native Class memory.** Exercise Wren GC through Zend MM and verify tracing
+6. **Single-task userspace — first slice complete.** ELF64 validation/loading,
+   supervisor/user page separation, GDT/TSS, Ring-3 entry, synchronous
+   `int 0x80` system calls, COM1 standard I/O, saved parent context, and
+   independent freestanding C `sh`, `ls`, and `cd` programs.
+7. **Native Class memory.** Exercise Wren GC through Zend MM and verify tracing
    of PHPX fields under sustained allocation.
-7. **Kernel services.** Interrupt-driven timer, keyboard, physical-page
+8. **Kernel services.** Interrupt-driven timer, keyboard, physical-page
    reclamation, and a capability-oriented native API.
-8. **Packaging and CI.** Automate the two-stage ELF32/ELF64 build and QEMU boot
+9. **Packaging and CI.** Automate the two-stage ELF32/ELF64 build and QEMU boot
    smoke test in GitHub Actions.
 
 Later architectures may provide different bootstraps and host ABI adapters.

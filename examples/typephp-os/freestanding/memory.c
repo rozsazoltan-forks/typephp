@@ -9,7 +9,10 @@ enum {
 
 static const uint64_t CHUNK_SIZE = 2ul * 1024ul * 1024ul;
 /* Keep the complete TypePHP + PHP Nano payload away from the page allocator. */
-static const uint64_t KERNEL_RESERVED_END = 16ul * 1024ul * 1024ul;
+/* Keep both the kernel payload and the fixed 32-36 MiB Ring-3 area away from
+ * the Zend arena. This is deliberately simple until a page-frame allocator
+ * owns user address-space placement. */
+static const uint64_t KERNEL_RESERVED_END = 40ul * 1024ul * 1024ul;
 static const uint64_t IDENTITY_MAP_END = 1024ul * 1024ul * 1024ul;
 
 typedef struct __attribute__((packed)) {

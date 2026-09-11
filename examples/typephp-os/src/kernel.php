@@ -176,11 +176,7 @@ function main(): void
     runMathSelfCheck();
     runFilesystemSelfCheck();
     runPrimeDemo(100);
-
     $greeting = new KernelGreeting();
-    while (true) {
-        sleep(2);
-        kernel_write($greeting->render(date('Y-m-d H:i:s')), 15);
-        kernel_put_char(10, 15);
-    }
+    echo $greeting->render(date('Y-m-d H:i:s')), "\n";
+    kernel_process_start();
 }

@@ -3,8 +3,11 @@
 This is a long-running experimental x86_64 TypePHP operating system. It boots
 under QEMU and runs an ordinary TypePHP Nano program without linking hosted
 PHP, libc, or libstdc++. TypePHP implements the startup self-check, a custom
-Zend class, the prime-number demo, and the resident application loop. Small C
-and assembly layers provide the machine bootstrap and current kernel services.
+Zend class, the prime-number demo, and filesystem services. Small C and
+assembly layers provide the machine bootstrap, current kernel services, and
+the temporary freestanding userspace programs.
+The first userspace programs (`sh`, `ls`, and `cd`) are deliberately written
+in freestanding C until tpc can target this small userspace ABI.
 
 The architectural rules and staged plan are maintained in
 [ROADMAP.md](ROADMAP.md).
@@ -53,12 +56,14 @@ make
 make run
 ```
 
-The build produces two useful files:
+The build produces these useful files:
 
 - `build/kernel64.elf`: the 64-bit TypePHP + ordinary Nano payload produced by
   tpc;
 - `build/typephp-os.elf`: the final Multiboot kernel accepted by QEMU;
 - `build/typephp-os.img`: a persistent 32 MiB FAT16 disk image.
+- `build/sh.elf`, `build/ls.elf`, and `build/cd.elf`: independent ELF64 Ring-3
+  programs built without libc.
 
 Run the automated serial-output smoke test with:
 
@@ -66,12 +71,14 @@ Run the automated serial-output smoke test with:
 make test
 ```
 
-The Makefile compiles only the 32-bit Multiboot bootstrap externally because
-its `-m32` ABI cannot participate in the 64-bit payload link. All ordinary
+The Makefile compiles the 32-bit Multiboot bootstrap externally because its
+`-m32` ABI cannot participate in the 64-bit payload link. It also builds the
+three deliberately small freestanding C userspace ELF files. All ordinary
 64-bit `.c`, `.cc`, and `.S` files remain in `project.yml` and use tpc's generic
 `c-flags`, `cxx-flags`, and `asm-flags`. Generic same-ABI prebuilt objects can
-be supplied with `objects`; the architecture-changing bootstrap is instead
-combined during the final packaging link.
+be supplied with `objects`; this is how read-only copies of the user ELF files
+are embedded for the kernel ELF loader. The architecture-changing bootstrap is
+instead combined during the final packaging link.
 
 After tpc emits `kernel64.elf`, the Makefile uses `objcopy` to turn the payload
 into a raw binary and then an ELF32 data object. GNU ld combines that object
@@ -88,7 +95,7 @@ qemu-system-x86_64 -m 128M \
   -display none -serial stdio -monitor none -no-reboot -no-shutdown
 ```
 
-Press `Ctrl+A`, then `X`, to leave headless QEMU.
+Press `Ctrl+C` to leave headless QEMU.
 
 ## Current capabilities
 
@@ -123,5 +130,34 @@ chunks to a future physical page allocator remains later work.
 The first filesystem milestone deliberately supports only the FAT16 root
 directory and DOS 8.3 names. Nested path traversal, long filenames,
 timestamps, permissions, and a general block-device layer remain future work.
-Network sockets, dynamic module loading, `include`/`require`/`eval`, and
-external process execution remain unavailable.
+Network sockets, dynamic module loading, `include`/`require`/`eval`, and PHP
+APIs that execute host commands remain unavailable.
+
+## Single-task userspace
+
+After the TypePHP self-check, the kernel validates and loads `sh.elf`, installs
+a 64-bit TSS and an IDT gate, and enters Ring 3 with `iretq`. The user pages at
+32-36 MiB are marked user-accessible while kernel pages remain supervisor-only.
+An `int 0x80` boundary currently provides synchronous `read`, `write`, `exec`,
+`exit`, `getcwd`, `chdir`, and directory-list operations. Standard input and
+output are backed by QEMU's COM1 serial console.
+
+The shell synchronously executes the separate `ls.elf` and `cd.elf` images.
+Only one user context runs at a time: while a command is active, the kernel
+keeps the shell register frame and restores it when the command calls `exit`.
+Because this is a deliberately single-task model, the working directory is a
+session-global property; a successful `cd` therefore remains visible after
+control returns to the shell.
+
+Available commands are:
+
+```text
+ls
+cd DOCS
+ls
+cd ..
+```
+
+The current FAT16 limitation still applies: a root child such as `/DOCS` is a
+valid working directory, but nested directory storage is not implemented, so
+its listing currently contains only `.` and `..`.
