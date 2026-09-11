@@ -33,19 +33,20 @@ enum {
     ATA_COMMAND_CACHE_FLUSH = 0xe7,
     ATA_SECTOR_SIZE = 512,
     ATA_TIMEOUT = 10000000,
-    ATA_CACHE_CAPACITY = 128,
+    /* TNHELLO.ELF is currently about 5 MiB. A power-of-two 8 MiB cache keeps
+     * one complete image resident so a second launch avoids ATA PIO, while a
+     * direct mapping keeps every sector lookup O(1). */
+    ATA_CACHE_CAPACITY = 16384,
     PCI_CONFIG_ADDRESS = 0xcf8,
     PCI_CONFIG_DATA = 0xcfc,
 };
 
 static int ata_initialized;
-static uint64_t ata_cache_clock;
 static uint64_t ata_cache_hit_count;
 static uint64_t ata_cache_miss_count;
 
 typedef struct {
     uint32_t lba;
-    uint64_t last_used;
     int valid;
     unsigned char data[ATA_SECTOR_SIZE];
 } ata_cache_entry;
@@ -206,23 +207,9 @@ static int ata_write_sector_raw(uint32_t lba, const unsigned char *data)
 
 static ata_cache_entry *ata_cache_slot(uint32_t lba, int *found)
 {
-    ata_cache_entry *oldest = &ata_cache[0];
-    for (size_t index = 0; index < ATA_CACHE_CAPACITY; ++index) {
-        ata_cache_entry *entry = &ata_cache[index];
-        if (entry->valid && entry->lba == lba) {
-            *found = 1;
-            return entry;
-        }
-        if (!entry->valid) {
-            *found = 0;
-            return entry;
-        }
-        if (entry->last_used < oldest->last_used) {
-            oldest = entry;
-        }
-    }
-    *found = 0;
-    return oldest;
+    ata_cache_entry *entry = &ata_cache[lba & (ATA_CACHE_CAPACITY - 1u)];
+    *found = entry->valid && entry->lba == lba;
+    return entry;
 }
 
 int typephp_os_disk_read_sector(uint32_t lba, unsigned char *data)
@@ -235,7 +222,6 @@ int typephp_os_disk_read_sector(uint32_t lba, unsigned char *data)
     entry = ata_cache_slot(lba, &found);
     if (found) {
         ++ata_cache_hit_count;
-        entry->last_used = ++ata_cache_clock;
         memcpy(data, entry->data, ATA_SECTOR_SIZE);
         return 1;
     }
@@ -245,7 +231,6 @@ int typephp_os_disk_read_sector(uint32_t lba, unsigned char *data)
     }
     entry->valid = 1;
     entry->lba = lba;
-    entry->last_used = ++ata_cache_clock;
     memcpy(entry->data, data, ATA_SECTOR_SIZE);
     return 1;
 }
@@ -261,7 +246,6 @@ int typephp_os_disk_write_sector(uint32_t lba, const unsigned char *data)
     (void) found;
     entry->valid = 1;
     entry->lba = lba;
-    entry->last_used = ++ata_cache_clock;
     memcpy(entry->data, data, ATA_SECTOR_SIZE);
     return 1;
 }

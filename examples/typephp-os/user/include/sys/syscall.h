@@ -14,6 +14,7 @@
 #define SYS_mprotect TYPEPHP_SYS_MPROTECT
 #define SYS_munmap TYPEPHP_SYS_MUNMAP
 #define SYS_brk TYPEPHP_SYS_BRK
+#define SYS_ioctl TYPEPHP_SYS_IOCTL
 #define SYS_access TYPEPHP_SYS_ACCESS
 #define SYS_getpid TYPEPHP_SYS_GETPID
 #define SYS_exit TYPEPHP_SYS_EXIT

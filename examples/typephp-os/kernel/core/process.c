@@ -2,7 +2,7 @@
    +----------------------------------------------------------------------+
    | TypePHP OS                                                          |
    +----------------------------------------------------------------------+
-   | Single foreground process, ELF64 loader and int 0x80 syscall core.  |
+   | Single foreground process, ELF64 loader and x86-64 syscall core.    |
    | SPDX-License-Identifier: BSD-3-Clause                               |
    +----------------------------------------------------------------------+
 */
@@ -34,7 +34,6 @@ enum {
     USER_DATA_SELECTOR = 0x1b,
     KERNEL_CODE_SELECTOR = 0x08,
     TSS_SELECTOR = 0x28,
-    IDT_SYSCALL = 0x80,
     MAX_USER_ARGUMENTS = 8,
     USER_PATH_MAX = 128,
     UTSNAME_LENGTH = 65,
@@ -58,6 +57,13 @@ typedef struct {
     long seconds;
     long microseconds;
 } user_timeval;
+
+typedef struct {
+    uint16_t rows;
+    uint16_t columns;
+    uint16_t pixel_width;
+    uint16_t pixel_height;
+} user_winsize;
 
 enum {
     ELF_PT_LOAD = 1,
@@ -215,8 +221,30 @@ extern uint64_t physical_page_available(void);
 static uint64_t gdt[7] __attribute__((aligned(16)));
 static idt_gate idt[256] __attribute__((aligned(16)));
 static task_state_segment tss;
-static unsigned char syscall_stack[64u * 1024u] __attribute__((aligned(16)));
+unsigned char typephp_os_syscall_stack[64u * 1024u] __attribute__((aligned(16)));
+uint64_t typephp_os_syscall_user_rsp;
 static process_state foreground_process = {.pid = 1, .cwd = "/"};
+
+enum {
+    IA32_EFER = 0xc0000080u,
+    IA32_STAR = 0xc0000081u,
+    IA32_LSTAR = 0xc0000082u,
+    IA32_FMASK = 0xc0000084u,
+};
+
+static uint64_t read_msr(uint32_t index)
+{
+    uint32_t low;
+    uint32_t high;
+    __asm__ volatile("rdmsr" : "=a"(low), "=d"(high) : "c"(index));
+    return ((uint64_t) high << 32u) | low;
+}
+
+static void write_msr(uint32_t index, uint64_t value)
+{
+    __asm__ volatile("wrmsr" : : "c"(index), "a"((uint32_t) value),
+        "d"((uint32_t) (value >> 32u)) : "memory");
+}
 
 static void panic(const char *message)
 {
@@ -287,7 +315,8 @@ static void install_descriptor_tables(void)
     gdt[3] = UINT64_C(0x00cff2000000ffff);
     gdt[4] = UINT64_C(0x00affa000000ffff);
     memset(&tss, 0, sizeof(tss));
-    tss.rsp0 = (uint64_t) (uintptr_t) (syscall_stack + sizeof(syscall_stack));
+    tss.rsp0 = (uint64_t) (uintptr_t)
+        (typephp_os_syscall_stack + sizeof(typephp_os_syscall_stack));
     tss.iomap_base = sizeof(tss);
     install_tss_descriptor((uint64_t) (uintptr_t) &tss, sizeof(tss) - 1u);
 
@@ -314,10 +343,20 @@ static void install_descriptor_tables(void)
     install_idt_gate(12, typephp_os_exception_12, 0x8e);
     install_idt_gate(13, typephp_os_exception_13, 0x8e);
     install_idt_gate(14, typephp_os_exception_14, 0x8e);
-    install_idt_gate(IDT_SYSCALL, typephp_os_syscall_entry, 0xee);
     pointer.limit = sizeof(idt) - 1u;
     pointer.base = (uint64_t) (uintptr_t) idt;
     __asm__ volatile("lidt %0" : : "m"(pointer) : "memory");
+
+    /* STAR[47:32] selects kernel CS 0x08 and its following SS 0x10.
+     * SYSRET's selector arithmetic starts at 0x10, yielding user SS 0x1b
+     * and user CS 0x23. This kernel returns with IRETQ so that spawn/exit can
+     * replace the complete user context, but the entry ABI remains the native
+     * Linux x86-64 SYSCALL register convention. */
+    write_msr(IA32_STAR,
+        (UINT64_C(0x10) << 48u) | ((uint64_t) KERNEL_CODE_SELECTOR << 32u));
+    write_msr(IA32_LSTAR, (uint64_t) (uintptr_t) typephp_os_syscall_entry);
+    write_msr(IA32_FMASK, UINT64_C(0x700)); /* TF, IF and DF */
+    write_msr(IA32_EFER, read_msr(IA32_EFER) | UINT64_C(1));
 }
 
 static int read_exact(int fd, void *buffer, size_t size)
@@ -400,6 +439,13 @@ static int load_user_elf_file(
             goto done;
         }
         if (segment.type != ELF_PT_LOAD) {
+            continue;
+        }
+        /* GNU ld can retain an empty PT_LOAD from the linker script when a
+         * tiny static executable has no data or bss sections. It maps no
+         * bytes and must not be rejected merely because its placeholder
+         * virtual address is zero. */
+        if (segment.filesz == 0 && segment.memsz == 0) {
             continue;
         }
         if (segment.filesz > segment.memsz
@@ -768,6 +814,34 @@ static long syscall_uname(user_utsname *result)
     }
     memcpy(result, &identity, sizeof(*result));
     return 0;
+}
+
+static long syscall_ioctl(int fd, unsigned long request, void *argument)
+{
+    enum {
+        LINUX_TIOCGWINSZ = 0x5413,
+        LINUX_TIOCNOTTY = 0x5422,
+    };
+
+    if (fd < STDIN_FILENO || fd > STDERR_FILENO) {
+        return -ENOTTY;
+    }
+    switch (request) {
+    case LINUX_TIOCGWINSZ: {
+        user_winsize *window = (user_winsize *) argument;
+        if (!user_buffer(window, sizeof(*window))) {
+            return -EFAULT;
+        }
+        window->rows = 25;
+        window->columns = 80;
+        window->pixel_width = 0;
+        window->pixel_height = 0;
+        return 0;
+    }
+    case LINUX_TIOCNOTTY:
+    default:
+        return -ENOTTY;
+    }
 }
 
 static unsigned int vm_protection(int protection)
@@ -1153,6 +1227,9 @@ long typephp_os_syscall_dispatch(syscall_frame *frame)
         return syscall_munmap(frame->rdi, frame->rsi);
     case TYPEPHP_SYS_BRK:
         return syscall_brk(frame->rdi);
+    case TYPEPHP_SYS_IOCTL:
+        return syscall_ioctl((int) frame->rdi, frame->rsi,
+            (void *) frame->rdx);
     case TYPEPHP_SYS_ACCESS:
         return syscall_access_path(AT_FDCWD, (const char *) frame->rdi,
             (int) frame->rsi, 0);

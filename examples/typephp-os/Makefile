@@ -22,7 +22,7 @@ OPENLIBM_SOURCES := $(shell sed -n 's|^\(.*\.c\)$$|thirdparty/openlibm/\1|p' too
 COMPILER_RT_SOURCES := $(shell awk '$$2 ~ /\.c$$/ { print "thirdparty/compiler-rt/" $$2 }' tools/compiler-rt-builtins-files.sha256)
 COMPILER_RT_OBJECTS := $(patsubst thirdparty/compiler-rt/lib/builtins/%.c,$(COMPILER_RT_OBJECT_DIR)/%.o,$(COMPILER_RT_SOURCES))
 TYPEPHP_OS_LIBRARY_C_SOURCES := user/runtime/posix.c user/runtime/dirent.c \
-	user/runtime/fcntl.c kernel/core/abi/error.c kernel/core/abi/string.c \
+	user/runtime/fcntl.c user/runtime/ioctl.c kernel/core/abi/error.c kernel/core/abi/string.c \
 	kernel/core/abi/libc.c $(OPENLIBM_SOURCES)
 TYPEPHP_OS_LIBRARY_CXX_SOURCES := user/runtime/host.cc kernel/core/abi/cxx.cpp
 TYPEPHP_OS_LIBRARY_ASM_SOURCES := user/runtime/crt0.S user/runtime/syscall.S \

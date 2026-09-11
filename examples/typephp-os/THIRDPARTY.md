@@ -28,9 +28,8 @@ Run the upstream integration probes separately:
 make thirdparty-smoke
 ```
 
-This target requires Meson 1.3 or newer for mlibc. It configures a headers-only
-mlibc sysroot and builds a deliberately small hosted Toybox. Neither candidate
-is installed into the TypePHP-OS disk image by this probe.
+This target builds a deliberately small hosted Toybox and audits its undefined
+ABI. It is not installed into the TypePHP-OS disk image by this probe.
 
 ## OpenLibm
 
@@ -58,27 +57,6 @@ and TypePHP Nano userspace object set. The `builtins.elf` smoke command forces
 signed and unsigned 128-bit division so the archive is tested as a real linker
 dependency instead of merely being compiled.
 
-## mlibc
-
-- Upstream: <https://github.com/managarm/mlibc>
-- Version: `v7.0.0`
-- Commit: `7c2a178142625cc9852e59a1a090468c61a62d3b`
-- Archive SHA-256: `56d62366a6a15bc3fd8741bebcb311ca543553f7b734b1e780aeae33691bd621`
-
-The complete release tree is retained as a libc porting reference. The smoke
-target configures mlibc's official Meson build in headers-only/demo-sysdeps
-mode and compiles a TypePHP-OS API header probe. mlibc 7.0's implementation
-build requires C++23 and GCC 13 or newer, while TypePHP-OS keeps C++17 as its
-runtime baseline. Its implementation therefore does not replace the current
-small libc yet; doing so also requires a real TypePHP-OS sysdeps port.
-
-The mlibc 6 series does not have one uniform compiler baseline. Releases 6.0
-and 6.1 request C++20 and do not contain the GCC 13 gate added later, so they
-are more practical with an older compiler. Releases 6.2 and 6.3 already
-request C++23. None of them satisfies TypePHP-OS's C++17 baseline unchanged;
-using 6.0/6.1 would therefore be a separate port/toolchain choice rather than
-a transparent downgrade of the pinned reference.
-
 ## Toybox
 
 - Upstream: <https://codeberg.org/landley/toybox>
@@ -93,7 +71,6 @@ host ABI is written to `build/thirdparty-smoke/toybox-undefined-symbols.txt`.
 `ioctl` is a system-call API used by Toybox's shared C support library, not a
 Toybox command. None of those five applet source files calls it directly, but
 the common terminal/daemon helpers still leave an `ioctl` reference in the
-hosted binary. Toybox is therefore intentionally not linked into TypePHP-OS.
-The project will not implement `ioctl` or `termios` merely to satisfy it;
-adoption requires pruning the unused common helpers or completing a different
-compatible libc/runtime path.
+hosted binary. TypePHP-OS now exposes the Linux-numbered syscall and implements
+`TIOCGWINSZ` for its fixed console. Toybox still needs a freestanding build and
+ABI audit before it can replace any existing command.

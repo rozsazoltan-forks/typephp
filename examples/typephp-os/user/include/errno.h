@@ -16,6 +16,7 @@ int *__errno_location(void);
 #define EISDIR 21
 #define EINVAL 22
 #define EMFILE 24
+#define ENOTTY 25
 #define EROFS 30
 #define ERANGE 34
 #define ENAMETOOLONG 36

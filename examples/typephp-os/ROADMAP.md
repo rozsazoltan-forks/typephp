@@ -28,10 +28,9 @@ behavior.
   `wait`, pipes, threads, scheduling signals, and job control will not be
   implemented. The shell may only launch one synchronous foreground ELF
   through the private TypePHP-OS service.
-- `ioctl` and `termios` are outside the current scope. Third-party programs
-  must not drive implementation of these low-priority terminal interfaces;
-  they can be adopted only after their selected build no longer requires the
-  interfaces or another generally useful subsystem justifies them.
+- Keep `ioctl` request support deliberately narrow. The fixed serial/VGA
+  console provides `TIOCGWINSZ`; a complete termios subsystem remains outside
+  the current single-task shell requirements.
 
 ## Milestones
 
@@ -90,10 +89,8 @@ behavior.
    C commands and multiple tpc projects link the same platform archive.
    Unavailable ABI functions remain explicit panic stubs.
    Selected upstream LLVM compiler-rt builtins now provide 128-bit integer
-   helper symbols. mlibc 7.0 and a five-applet Toybox build are pinned as
-   porting probes; neither replaces the working userspace runtime yet because
-   mlibc exceeds the C++17 baseline and Toybox's common runtime still imports
-   `ioctl`.
+   helper symbols. A five-applet Toybox build is pinned as a porting probe but
+   does not yet replace the working userspace commands.
    Single-task identity calls report PID/TID 1 for the resident shell, 2 for
    its synchronous foreground command, and root UID/GID. Linux-compatible
    wall/monotonic clock structures are exposed at the current one-second RTC

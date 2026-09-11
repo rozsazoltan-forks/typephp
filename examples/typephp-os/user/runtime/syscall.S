@@ -6,7 +6,7 @@
 .extern __errno_location
 syscall:
     # Translate the System V variadic-call ABI to Linux x86-64 syscall
-    # registers. TypePHP-OS currently enters the kernel through int 0x80.
+    # registers, then use the native 64-bit fast-system-call instruction.
     mov %rdi, %rax
     mov %rsi, %rdi
     mov %rdx, %rsi
@@ -14,7 +14,7 @@ syscall:
     mov %r8, %r10
     mov %r9, %r8
     mov 8(%rsp), %r9
-    int $0x80
+    syscall
     cmp $-4095, %rax
     jb 1f
     neg %eax

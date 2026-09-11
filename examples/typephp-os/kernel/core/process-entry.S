@@ -4,7 +4,21 @@
 .global typephp_os_syscall_entry
 .type typephp_os_syscall_entry, @function
 .extern typephp_os_syscall_dispatch
+.extern typephp_os_syscall_stack
+.extern typephp_os_syscall_user_rsp
 typephp_os_syscall_entry:
+    # SYSCALL leaves RSP unchanged, stores the user RIP in RCX and stores the
+    # user RFLAGS in R11. Save the untrusted user stack pointer before moving
+    # to the kernel-owned syscall stack, then construct the same IRET frame
+    # used by exceptions and the former interrupt-gate entry.
+    mov %rsp, typephp_os_syscall_user_rsp(%rip)
+    lea typephp_os_syscall_stack+65536(%rip), %rsp
+    pushq $0x1b
+    pushq typephp_os_syscall_user_rsp(%rip)
+    push %r11
+    pushq $0x23
+    push %rcx
+
     # Save every general-purpose register. The saved RAX slot is overwritten
     # with the syscall result before the frame is restored.
     push %rbx
@@ -120,7 +134,7 @@ typephp_os_exception_common:
 .type typephp_os_enter_user, @function
 typephp_os_enter_user:
     # RDI = ELF entry, RSI = top of the user stack. Interrupts remain masked;
-    # int 0x80 is synchronous and the first process manager has no scheduler.
+    # SYSCALL is synchronous and the first process manager has no scheduler.
     mov $0x1b, %ax
     mov %ax, %ds
     mov %ax, %es

@@ -39,9 +39,8 @@ Selected LLVM compiler-rt 128-bit integer helpers are built separately as
 Ring-3 `builtins` command deliberately generates signed and unsigned
 division/remainder helper calls and verifies the results at runtime.
 
-mlibc and Toybox are currently integration probes rather than runtime
-dependencies. See `THIRDPARTY.md` for the tested boundary and the generated
-Toybox ABI report.
+Toybox is currently an integration probe rather than a runtime dependency.
+See `THIRDPARTY.md` for the tested boundary and generated ABI report.
 
 The archive and each consumer must use the same freestanding ABI flags and
 PHP Nano/PHPX feature definitions. Those shared settings are maintained in the

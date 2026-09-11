@@ -99,9 +99,9 @@ Run the automated serial-output smoke test with:
 make test
 ```
 
-To configure the mlibc header porting probe and build the restricted hosted
-Toybox applet set, install Meson 1.3 or newer and run `make thirdparty-smoke`.
-This is an integration audit, not part of the boot image.
+To build and audit the restricted hosted Toybox applet set, run
+`make thirdparty-smoke`. This is an integration audit, not part of the boot
+image.
 
 The Makefile compiles the startup sources under `boot/` directly. The 32-bit
 Multiboot bootstrap cannot participate in the 64-bit payload link; the 64-bit

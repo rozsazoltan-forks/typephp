@@ -1,6 +1,8 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <stddef.h>
+#include <errno.h>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <time.h>
@@ -38,6 +40,7 @@ int main(int argc, char **argv)
     struct timespec realtime;
     struct timespec monotonic;
     struct timespec resolution;
+    struct winsize window;
     DIR *directory;
     struct dirent *entry;
     int found_hello = 0;
@@ -99,6 +102,12 @@ int main(int argc, char **argv)
     if (getpid() != 2 || gettid() != 2 || getppid() != 1
         || getuid() != 0 || geteuid() != 0 || getgid() != 0 || getegid() != 0) {
         return fail("single-task identity");
+    }
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &window) != 0
+        || window.ws_row != 25 || window.ws_col != 80
+        || window.ws_xpixel != 0 || window.ws_ypixel != 0
+        || ioctl(STDOUT_FILENO, TIOCNOTTY) != -1 || errno != ENOTTY) {
+        return fail("ioctl console ABI");
     }
     if (gettimeofday(&wall, NULL) != 0 || wall.tv_sec <= 0
         || clock_gettime(CLOCK_REALTIME, &realtime) != 0

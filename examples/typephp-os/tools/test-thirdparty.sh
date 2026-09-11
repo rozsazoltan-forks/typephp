@@ -4,7 +4,6 @@ set -euo pipefail
 
 project_dir=$(cd -- "$(dirname -- "$0")/.." && pwd)
 build_dir="${project_dir}/build/thirdparty-smoke"
-meson_command=${MESON:-meson}
 
 if [[ ! -f "${project_dir}/build/libcompiler-rt-builtins.a" ]]; then
     echo "compiler-rt archive is missing; run make compiler-rt-builtins first" >&2
@@ -18,31 +17,6 @@ for symbol in __udivti3 __udivmodti4 __divti3 __modti3 __multi3; do
     fi
 done
 echo "compiler-rt builtins archive: OK"
-
-if ! command -v "${meson_command}" >/dev/null 2>&1; then
-    echo "Meson 1.3 or newer is required for the mlibc headers probe" >&2
-    exit 1
-fi
-
-mlibc_build="${build_dir}/mlibc-build"
-mlibc_sysroot="${build_dir}/mlibc-sysroot"
-rm -rf "${mlibc_build}" "${mlibc_sysroot}"
-"${meson_command}" setup \
-    "${mlibc_build}" "${project_dir}/thirdparty/mlibc" \
-    --cross-file "${project_dir}/tools/mlibc-demo-cross.ini" \
-    --prefix=/usr \
-    -Dheaders_only=true \
-    -Dposix_option=enabled \
-    -Dlinux_option=disabled \
-    -Dglibc_option=disabled \
-    -Dbsd_option=disabled
-DESTDIR="${mlibc_sysroot}" "${meson_command}" install --quiet -C "${mlibc_build}"
-compiler_headers=$(gcc -print-file-name=include)
-gcc -std=c11 -ffreestanding -fsyntax-only -nostdinc \
-    -isystem "${mlibc_sysroot}/usr/include" \
-    -isystem "${compiler_headers}" \
-    "${project_dir}/tools/mlibc-headers-smoke.c"
-echo "mlibc public-header ABI probe: OK"
 
 toybox_source="${project_dir}/thirdparty/toybox"
 toybox_config="${build_dir}/toybox.config"
@@ -67,8 +41,8 @@ if grep -Eq '^(fork|vfork|execv|execve|execvp|posix_spawn)$' "${toybox_symbols}"
 fi
 echo "Toybox selected applets build: OK"
 if grep -qx ioctl "${toybox_symbols}"; then
-    echo "Toybox install: deferred (the common runtime still references unsupported ioctl)"
+    echo "Toybox ABI audit: common runtime imports the supported ioctl entry point"
 else
-    echo "Toybox install: ABI audit no longer reports ioctl; reassess target linking"
+    echo "Toybox ABI audit: common runtime does not import ioctl"
 fi
 echo "Toybox ABI report: ${toybox_symbols}"

@@ -26,6 +26,7 @@ char *strerror(int error)
     case ENOTDIR: return "Not a directory";
     case EISDIR: return "Is a directory";
     case EINVAL: return "Invalid argument";
+    case ENOTTY: return "Inappropriate ioctl for device";
     case EMFILE: return "Too many open files";
     case EROFS: return "Read-only file system";
     case ERANGE: return "Numerical result out of range";
