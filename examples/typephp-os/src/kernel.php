@@ -69,6 +69,80 @@ function runFeatureSelfCheck(): void
     }
 }
 
+function runMathSelfCheck(): void
+{
+    $root = sqrt(2.0);
+    $power = pow(9.0, 0.5);
+    $identity = sin(0.5) * sin(0.5) + cos(0.5) * cos(0.5);
+    if ($root > 1.414 && $root < 1.415
+        && $power > 2.999 && $power < 3.001
+        && $identity > 0.999 && $identity < 1.001) {
+        writeLine('OpenLibm math: OK', 10);
+        return;
+    }
+    writeLine('OpenLibm math: FAILED', 12);
+}
+
+function runFilesystemSelfCheck(): void
+{
+    $device = new AtaBlockDevice();
+    if (!$device->available()) {
+        writeLine('FAT16 disk: unavailable', 12);
+        return;
+    }
+
+    $volume = new Fat16Volume($device);
+    if (!$volume->mount()) {
+        writeLine('FAT16 mount: ' . $volume->lastError(), 12);
+        return;
+    }
+    if (!$volume->hasRootEntry('DATA')) {
+        $volume->makeRootDirectory('DATA');
+    }
+    $expected = 'Hello from TypePHP FAT16!';
+    if (!$volume->writeRootFile('HELLO.TXT', $expected)) {
+        writeLine('FAT16 write: FAILED', 12);
+        return;
+    }
+    $actual = $volume->readRootFile('HELLO.TXT');
+    if ($actual !== $expected) {
+        writeLine('FAT16 read: FAILED', 12);
+        return;
+    }
+    writeLine('FAT16 file: ' . $actual, 10);
+    writeLine('FAT16 root: ' . $volume->rootListing(), 10);
+
+    /* Exercise the unchanged PHP standard extension and plain file-stream
+     * implementation through the POSIX-to-TypePHP bridge. */
+    $filesystem = new KernelFileSystem();
+    if (!$filesystem->initialize()) {
+        writeLine('PHP file stream: mount FAILED', 12);
+        return;
+    }
+    if (!kernel_fs_install($filesystem)) {
+        writeLine('PHP file stream: install FAILED', 12);
+        return;
+    }
+    $streamExpected = 'PHP stream through TypePHP FAT16';
+    $written = file_put_contents('/STREAM.TXT', $streamExpected);
+    $streamActual = file_get_contents('/STREAM.TXT');
+    if ($written !== strlen($streamExpected) || $streamActual !== $streamExpected) {
+        writeLine('PHP file stream: FAILED', 12);
+        return;
+    }
+    if (!is_dir('/DOCS') && !mkdir('/DOCS')) {
+        writeLine('PHP directory: FAILED', 12);
+        return;
+    }
+    $entries = scandir('/');
+    if ($entries === false) {
+        writeLine('PHP directory scan: FAILED', 12);
+        return;
+    }
+    echo 'PHP file stream: ', $streamActual, "\n";
+    echo 'PHP directory scan: ', implode(', ', $entries), "\n";
+}
+
 function runPrimeDemo(int $limit): void
 {
     $primes = std::vector(Type::Int);
@@ -99,6 +173,8 @@ function runPrimeDemo(int $limit): void
 function main(): void
 {
     runFeatureSelfCheck();
+    runMathSelfCheck();
+    runFilesystemSelfCheck();
     runPrimeDemo(100);
 
     $greeting = new KernelGreeting();

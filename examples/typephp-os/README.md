@@ -23,8 +23,7 @@ project owns the freestanding boundary under `freestanding/abi`: implemented
 C/POSIX and C++ ABI functions live there, while APIs required for linking but
 not implemented by the kernel are exported as panic stubs. Consequently an
 unsupported operation fails immediately with its ABI symbol instead of
-silently returning fabricated data. Filesystem APIs are the next subsystem to
-replace with real implementations; sockets are outside the current scope.
+silently returning fabricated data. Sockets are outside the current scope.
 
 Cross-project portability uses general feature switches only:
 
@@ -45,7 +44,7 @@ only excluded capability is dynamic PHP execution through ZendVM.
 ## Build and run
 
 Required host tools are TypePHP's PHP/Composer dependencies, GCC/G++, GNU
-binutils, GNU make, and `qemu-system-x86_64`.
+binutils, GNU make, `dosfstools`, and `qemu-system-x86_64`.
 
 From this directory, build and boot with:
 
@@ -58,7 +57,8 @@ The build produces two useful files:
 
 - `build/kernel64.elf`: the 64-bit TypePHP + ordinary Nano payload produced by
   tpc;
-- `build/typephp-os.elf`: the final Multiboot kernel accepted by QEMU.
+- `build/typephp-os.elf`: the final Multiboot kernel accepted by QEMU;
+- `build/typephp-os.img`: a persistent 32 MiB FAT16 disk image.
 
 Run the automated serial-output smoke test with:
 
@@ -84,6 +84,7 @@ To invoke QEMU manually:
 ```shell
 qemu-system-x86_64 -m 128M \
   -kernel examples/typephp-os/build/typephp-os.elf \
+  -drive file=examples/typephp-os/build/typephp-os.img,format=raw,if=ide,index=0 \
   -display none -serial stdio -monitor none -no-reboot -no-shutdown
 ```
 
@@ -103,7 +104,14 @@ The QEMU smoke test currently verifies:
 - real Zend allocation, GC, string, array, object, class, and exception data;
 - PHPX `Variant`, `Str`, `Array`, custom classes, and a typed
   `std::vector<int>`;
+- OpenLibm implementations of the ordinary double-precision math ABI;
 - built-in date handling and `sleep()` through Zend Bridge;
+- ATA PIO sector I/O and a TypePHP FAT16 implementation with 8.3 root files
+  and directories;
+- PHP's unchanged plain file stream and `php_stat()` paths, including
+  `file_put_contents()`, `file_get_contents()`, `is_dir()`, `mkdir()`, and
+  `scandir()`, forwarded through the POSIX ABI to TypePHP;
+- normal PHP output through multi-argument `echo` and `PHPWRITE`;
 - a TypePHP prime calculation for 0–100;
 - a resident loop that prints the RTC-derived UTC time and
   `Hello TypePHP-OS!` every two seconds.
@@ -112,7 +120,8 @@ The 64-bit payload currently occupies about 7 MiB, so the first 16 MiB is
 reserved before physical memory is handed to Zend MM. Returning entire Zend
 chunks to a future physical page allocator remains later work.
 
-Filesystem ABI entries already link as explicit panic stubs. The next
-milestone will replace them with an in-kernel filesystem and make PHP's local
-file stream operations real. Network sockets, dynamic module loading,
-`include`/`require`/`eval`, and external process execution remain unavailable.
+The first filesystem milestone deliberately supports only the FAT16 root
+directory and DOS 8.3 names. Nested path traversal, long filenames,
+timestamps, permissions, and a general block-device layer remain future work.
+Network sockets, dynamic module loading, `include`/`require`/`eval`, and
+external process execution remain unavailable.

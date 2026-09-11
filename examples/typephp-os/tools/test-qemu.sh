@@ -3,10 +3,12 @@
 set -euo pipefail
 
 kernel=${1:?kernel ELF is required}
-log=${2:?log path is required}
+disk=${2:?FAT16 disk image is required}
+log=${3:?log path is required}
 
 if timeout 8 qemu-system-x86_64 \
         -kernel "${kernel}" \
+        -drive file="${disk}",format=raw,if=ide,index=0 \
         -display none \
         -serial stdio \
         -monitor none \
@@ -31,6 +33,11 @@ grep -Eq '^RAM MiB: [1-9][0-9]*' "${log}"
 grep -q "Zend MiB: 2" "${log}"
 grep -q "Zend string/array: OK" "${log}"
 grep -q "Kernel is!" "${log}"
+grep -q "OpenLibm math: OK" "${log}"
+grep -q "FAT16 file: Hello from TypePHP FAT16!" "${log}"
+grep -q "FAT16 root: DATA/, HELLO.TXT" "${log}"
+grep -q "PHP file stream: PHP stream through TypePHP FAT16" "${log}"
+grep -q "PHP directory scan: ., .., DATA, DOCS, HELLO.TXT, STREAM.TXT" "${log}"
 grep -q "Calculate primes: 0-100" "${log}"
 grep -q "Prime count: 25" "${log}"
 grep -q "Prime list: 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97" "${log}"

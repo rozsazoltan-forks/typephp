@@ -20,3 +20,15 @@ function kernel_chunk_smoke_test(): int { return 0; }
 
 #[NativeFunction]
 function kernel_halt(): void {}
+
+#[NativeFunction]
+function kernel_disk_available(): bool { return false; }
+
+#[NativeFunction]
+function kernel_disk_read_sector(int $lba): string { return ''; }
+
+#[NativeFunction]
+function kernel_disk_write_sector(int $lba, string $data): bool { return false; }
+
+#[NativeFunction]
+function kernel_disk_flush(): bool { return false; }

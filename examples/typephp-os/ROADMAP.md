@@ -36,8 +36,11 @@ behavior.
    classes, generated user classes, construction, properties, and destruction.
 4. **Time service — complete.** CMOS wall clock, monotonic host hook, built-in
    date formatting, and the standard extension's `sleep()` path.
-5. **Filesystem — next.** Physical block device, a small filesystem, file
-   descriptors, directory/stat operations, and PHP's local file stream API.
+5. **Filesystem — first slice complete.** ATA PIO, a persistent FAT16 image,
+   TypePHP-owned cluster/directory/file logic, file descriptors, POSIX
+   directory/stat operations, and PHP's local file stream API. The current
+   implementation is intentionally limited to root-level DOS 8.3 names;
+   nested directories and long filenames are next.
 6. **Native Class memory.** Exercise Wren GC through Zend MM and verify tracing
    of PHPX fields under sustained allocation.
 7. **Kernel services.** Interrupt-driven timer, keyboard, physical-page

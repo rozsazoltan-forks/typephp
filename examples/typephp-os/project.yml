@@ -6,16 +6,22 @@ sources:
   - freestanding/kernel.c
   - freestanding/memory.c
   - freestanding/time.c
+  - freestanding/ata.c
   - freestanding/zend-allocator.c
   - freestanding/bridge.cc
+  - freestanding/filesystem_abi.cc
   - freestanding/abi/libc.c
   - freestanding/abi/cxx.cpp
   - freestanding/abi/unimplemented.S
+  - thirdparty/openlibm/src
 build-dir: build/generated
 output: build/kernel64.elf
 cxx-std: c++17
 include-paths:
   - freestanding/abi
+  - thirdparty/openlibm/include
+  - thirdparty/openlibm/src
+  - thirdparty/openlibm/amd64
 defines:
   - TYPEPHP_NO_MAIN=1
   - PHPX_NO_EXCEPTION=1
@@ -24,6 +30,8 @@ defines:
   - __NO_CTYPE=1
   - ZEND_MM_ERROR=0
   - ZEND_MM_CUSTOM=0
+  - ASSEMBLER=1
+  - __BSD_VISIBLE=1
 cxx-flags:
   - -ffreestanding
   - -fno-builtin

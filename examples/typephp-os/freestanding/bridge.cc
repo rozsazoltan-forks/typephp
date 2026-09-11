@@ -2,6 +2,7 @@
 #include <php_nano_extension.h>
 #include <phpx.h>
 #include <phpx_helper.h>
+#include <cstdint>
 
 void php_main();
 
@@ -14,6 +15,33 @@ extern "C" void kernel_put_char_c(int ascii, int color);
 extern "C" void kernel_halt_c();
 extern "C" unsigned long physical_memory_megabytes();
 extern "C" unsigned long physical_chunk_smoke_test();
+extern "C" int typephp_os_disk_available();
+extern "C" int typephp_os_disk_read_sector(uint32_t lba, unsigned char *data);
+extern "C" int typephp_os_disk_write_sector(uint32_t lba, const unsigned char *data);
+extern "C" int typephp_os_disk_flush();
+
+extern "C" ZEND_NORETURN void phpx_no_exception_abort(const char *fallback)
+{
+    if (EG(exception) != nullptr) {
+        zval value;
+        zval *message = zend_read_property_ex(
+            zend_get_exception_base(EG(exception)),
+            EG(exception),
+            ZSTR_KNOWN(ZEND_STR_MESSAGE),
+            true,
+            &value);
+        typephp_os_write("Uncaught ", sizeof("Uncaught ") - 1);
+        typephp_os_write(ZSTR_VAL(EG(exception)->ce->name), ZSTR_LEN(EG(exception)->ce->name));
+        typephp_os_write(": ", sizeof(": ") - 1);
+        if (Z_TYPE_P(message) == IS_STRING) {
+            typephp_os_write(Z_STRVAL_P(message), Z_STRLEN_P(message));
+        } else {
+            typephp_os_write(fallback, strlen(fallback));
+        }
+        typephp_os_write("\n", 1);
+    }
+    typephp_os_panic(fallback);
+}
 
 static void exception_model_smoke_test()
 {
@@ -81,4 +109,32 @@ php::Int php_kernel_chunk_smoke_test()
 void php_kernel_halt()
 {
     kernel_halt_c();
+}
+
+php::Bool php_kernel_disk_available()
+{
+    return typephp_os_disk_available() != 0;
+}
+
+php::Str php_kernel_disk_read_sector(php::Int lba)
+{
+    unsigned char data[512];
+    if (lba < 0 || lba > UINT32_MAX
+        || !typephp_os_disk_read_sector(static_cast<uint32_t>(lba), data)) {
+        return php::Str();
+    }
+    return php::Str(reinterpret_cast<const char *>(data), sizeof(data));
+}
+
+php::Bool php_kernel_disk_write_sector(php::Int lba, php::Str data)
+{
+    return lba >= 0 && lba <= UINT32_MAX && data.length() == 512
+        && typephp_os_disk_write_sector(
+            static_cast<uint32_t>(lba),
+            reinterpret_cast<const unsigned char *>(data.data())) != 0;
+}
+
+php::Bool php_kernel_disk_flush()
+{
+    return typephp_os_disk_flush() != 0;
 }

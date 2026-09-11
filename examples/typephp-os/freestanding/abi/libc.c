@@ -98,11 +98,6 @@ __attribute__((weak, noreturn)) void typephp_os_panic(const char *message)
     }
 }
 
-void phpx_no_exception_abort(const char *message)
-{
-    typephp_os_panic(message);
-}
-
 int php_nano_host_random_bytes(void *bytes, size_t size)
 {
     static uint64_t state = UINT64_C(0x9e3779b97f4a7c15);
@@ -597,65 +592,6 @@ int _setjmp(jmp_buf environment)
 {
     (void) environment;
     return 0;
-}
-
-double pow(double base, double exponent)
-{
-    long power = (long) exponent;
-    if ((double) power != exponent) {
-        return 0.0;
-    }
-    double result = 1.0;
-    unsigned long magnitude = power < 0 ? (unsigned long) (-power) : (unsigned long) power;
-    while (magnitude != 0) {
-        if ((magnitude & 1u) != 0) {
-            result *= base;
-        }
-        base *= base;
-        magnitude >>= 1u;
-    }
-    return power < 0 ? 1.0 / result : result;
-}
-
-double fmod(double value, double divisor)
-{
-    if (divisor == 0.0) {
-        return 0.0 / 0.0;
-    }
-    double quotient = value / divisor;
-    if (quotient >= 0.0) {
-        quotient = (double) (unsigned long) quotient;
-    } else {
-        quotient = (double) (long) quotient;
-    }
-    return value - quotient * divisor;
-}
-
-double ceil(double value)
-{
-    long integral = (long) value;
-    return value > (double) integral ? (double) integral + 1.0 : (double) integral;
-}
-
-double floor(double value)
-{
-    long integral = (long) value;
-    return value < (double) integral ? (double) integral - 1.0 : (double) integral;
-}
-
-double trunc(double value)
-{
-    return (double) (long) value;
-}
-
-double round(double value)
-{
-    return value < 0.0 ? ceil(value - 0.5) : floor(value + 0.5);
-}
-
-double fabs(double value)
-{
-    return value < 0.0 ? -value : value;
 }
 
 int abs(int value)

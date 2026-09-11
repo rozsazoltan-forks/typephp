@@ -5,13 +5,14 @@ PAYLOAD_ELF := $(BUILD)/kernel64.elf
 PAYLOAD_BIN := $(BUILD)/kernel64.bin
 PAYLOAD_OBJECT := $(OBJECT_DIR)/kernel64-payload.o
 KERNEL := $(BUILD)/typephp-os.elf
+DISK := $(BUILD)/typephp-os.img
 
 BOOTFLAGS := -m32 -O2 -ffreestanding -fno-pic -fno-pie \
 	-fno-stack-protector -Wall -Wextra
 
-.PHONY: all payload objects run test clean
+.PHONY: all payload objects disk run test clean
 
-all: $(KERNEL)
+all: $(KERNEL) $(DISK)
 
 payload: objects
 	cd ../.. && ./bin/tpc.php --nano examples/typephp-os/project.yml
@@ -19,6 +20,15 @@ payload: objects
 # Only the 32-bit bootstrap requires flags incompatible with the 64-bit Nano
 # payload. Ordinary .c/.cc/.S files stay in project.yml sources.
 objects: $(BOOTSTRAP_OBJECT)
+
+disk: $(DISK)
+
+$(DISK): | $(BUILD)
+	truncate -s 32M $@
+	mkfs.fat -F 16 -n TYPEPHPOS $@
+
+$(BUILD):
+	mkdir -p $@
 
 $(OBJECT_DIR):
 	mkdir -p $@
@@ -36,10 +46,11 @@ $(KERNEL): payload
 
 run: all
 	qemu-system-x86_64 -m 128M -kernel $(KERNEL) \
+		-drive file=$(DISK),format=raw,if=ide,index=0 \
 		-display none -serial stdio -monitor none -no-reboot -no-shutdown
 
 test: all
-	bash tools/test-qemu.sh $(KERNEL) $(BUILD)/qemu.log
+	bash tools/test-qemu.sh $(KERNEL) $(DISK) $(BUILD)/qemu.log
 
 clean:
 	rm -rf $(BUILD)
