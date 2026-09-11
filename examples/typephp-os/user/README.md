@@ -18,17 +18,25 @@ The following rules are normative for this directory:
 4. Keep OS-specific calls behind the userspace ABI layer. Application and
    command code should gradually stop including raw syscall helpers as libc
    coverage grows.
-5. New kernel services should first consider the interfaces glibc needs:
-   process startup, memory mapping, files and directories, clocks, TLS,
-   signals, and process lifecycle. Socket support remains out of scope for the
-   current system.
-6. Freestanding test programs remain libc-free only as a bootstrap constraint;
+5. TypePHP-OS is permanently a single-task system. It does not implement
+   `fork`, `clone`, `execve`, `wait`, pipes, job control, threads, or signals
+   for scheduling. The private shell launch service synchronously replaces
+   the active command address space and restores the resident shell on exit;
+   it is not a public POSIX process-creation API.
+6. New kernel services should first consider the remaining interfaces needed
+   by a static libc and PHP Nano: memory mapping, files and directories,
+   clocks, TLS, terminal I/O, and single-task lifecycle. Socket support also
+   remains out of scope.
+7. Freestanding test programs remain libc-free only as a bootstrap constraint;
    it is not the final userspace programming model.
 
 The current bootstrap libc provides `syscall`, `read`, `write`, `openat`,
 `open`, `close`, `lseek`, `getcwd`, `chdir`, `mkdir`, `rmdir`, `unlink`,
-`rename`, `time`, `uname`, `brk`, `sbrk`, `mmap`, `mprotect`, `munmap`, `strlen`,
-`strerror`, `perror`, and `_exit` with libc-compatible C signatures. It also
+`rename`, `stat`, `lstat`, `fstat`, `access`, `fsync`, `fdatasync`, `truncate`,
+`ftruncate`, `time`, `gettimeofday`, `clock_gettime`, `clock_getres`, `uname`,
+`getpid`, `getppid`, `gettid`, the root UID/GID queries, `brk`, `sbrk`, `mmap`,
+`mprotect`, `munmap`, `strlen`, `strerror`, `perror`, and `_exit` with
+libc-compatible C signatures. It also
 translates kernel `-errno` results into `-1` plus the single-task userspace
 `errno`. This list is a migration layer, not a reason to create
 project-specific variants of standard functions.
@@ -55,6 +63,12 @@ accepts only `MAP_PRIVATE | MAP_ANONYMOUS`, `fd == -1`, and offset zero. File
 mappings, shared mappings, fixed mappings, remapping, and demand paging are not
 implemented yet. `brk()` and `mmap()` eagerly allocate zero-filled pages;
 `munmap()` and process teardown return them to the physical-page pool.
+
+The kernel additionally accepts Linux x86-64 `newfstatat`, `faccessat`, and
+`exit_group`. File metadata uses the Linux x86-64 144-byte `struct stat`
+layout. FAT16 currently has no owners, ACLs, symlinks, executable file bit, or
+sub-second timestamps: UID/GID are always root, ordinary files are `0666`,
+directories are `0777`, and clock resolution is one second.
 
 `rename()` currently accepts only source and destination paths with the same
 parent directory and does not replace an existing entry. Its transport uses a

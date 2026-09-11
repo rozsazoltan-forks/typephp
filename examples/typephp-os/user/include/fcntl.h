@@ -9,6 +9,8 @@
 #define O_APPEND 1024
 
 #define AT_FDCWD (-100)
+#define AT_SYMLINK_NOFOLLOW 0x100
+#define AT_EACCESS 0x200
 
 int open(const char *path, int flags, ...);
 int openat(int directory_fd, const char *path, int flags, ...);

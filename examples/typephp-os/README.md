@@ -143,6 +143,8 @@ The QEMU smoke test currently verifies:
   `std::vector<int>`;
 - OpenLibm implementations of the ordinary double-precision math ABI;
 - RTC-derived UTC time exposed to userspace through `time()`;
+- Linux-compatible `uname(2)` shared by the `uname` command and PHP's
+  `php_uname()` implementation;
 - ATA PIO sector I/O, a fixed 128-sector LRU read/write-through cache, and a
   TypePHP FAT16 implementation with DOS 8.3 files, nested traversal and
   mutation, including automatic directory-chain growth;
@@ -158,6 +160,11 @@ The QEMU smoke test currently verifies:
   `RX`/`RW` segment permissions;
 - Linux-numbered `brk`, anonymous private `mmap`, `mprotect`, and `munmap`
   calls backed by recyclable physical pages;
+- Linux-compatible file metadata and persistence calls (`stat`, `lstat`,
+  `fstat`, `newfstatat`, `access`, `faccessat`, `fsync`, `fdatasync`,
+  `truncate`, and `ftruncate`), exercised from both C and PHP Nano;
+- single-task PID/TID and root UID/GID queries plus `gettimeofday`,
+  `clock_gettime`, `clock_getres`, and `exit_group`;
 - dynamic command discovery and safe rejection of malformed ELF files;
 - recovery from invalid opcodes, cross-address-space reads, and writes to
   read-only mappings without losing the resident shell;
@@ -191,9 +198,11 @@ supervisor-only. The CPU has write protection and no-execute enabled, and the
 loader applies the final ELF `PF_W` and `PF_X` permissions after copying each
 segment.
 An `int 0x80` boundary currently provides synchronous `read`, `write`, `close`,
-`lseek`, `openat`, `exit`, `getcwd`, `chdir`, `mkdir`, `rmdir`, `unlink`,
-`time`, `brk`, anonymous private `mmap`, `mprotect`, `munmap`, and private
-spawn, directory-list, and same-directory rename operations. Standard
+`lseek`, `openat`, `exit`/`exit_group`, `getcwd`, `chdir`, `mkdir`, `rmdir`,
+`unlink`, file stat/access/persistence/truncation families, fixed identity
+queries, `time`, `gettimeofday`, `clock_gettime`, `clock_getres`, `brk`,
+anonymous private `mmap`, `mprotect`, `munmap`, and private spawn,
+directory-list, and same-directory rename operations. Standard
 input and output are backed by QEMU's COM1 serial console. Syscall numbers are
 shared by the kernel and userspace through `typephp_os_syscall.h`.
 
@@ -216,7 +225,10 @@ user context runs at a time: while a command is active, the kernel keeps the
 shell register frame and restores it when the command calls `exit`.
 Because this is a deliberately single-task model, the working directory is a
 session-global property; a successful `cd` therefore remains visible after
-control returns to the shell.
+control returns to the shell. `fork`, `clone`, `execve`, `wait`, pipes,
+threads, scheduling signals, and job control are intentional non-goals. The
+private synchronous shell launch syscall must not be exposed as POSIX
+`execve()` semantics.
 
 `TNHELLO.ELF` demonstrates the intended TypePHP userspace path. It is built by
 the ordinary tpc Nano pipeline, links the complete php-nano and PHPX manifests,
@@ -253,6 +265,7 @@ mkdir TMP
 rm NOTE.TXT
 rmdir TMP
 mv OLD.TXT NEW.TXT
+systest
 cd DOCS
 pwd
 ls
@@ -264,7 +277,9 @@ invalid opcode, an attempted read from the shell's virtual address, and an
 attempted write to a read-only `mmap()` page. The kernel reports each Ring-3
 exception, destroys the faulty address space, and restores the shell. The
 `memtest` command exercises `sbrk()`, anonymous mapping, protection changes,
-and unmapping. User exceptions for divide errors, breakpoints, bounds, invalid
+and unmapping. `systest` covers file metadata, persistence/truncation, fixed
+single-task identities, and wall/monotonic clock ABIs. User exceptions for
+divide errors, breakpoints, bounds, invalid
 opcodes, invalid TSS/segments, stack faults, general-protection faults, and
 page faults have IDT entries. A fault raised in Ring 0 still causes an
 immediate kernel panic.

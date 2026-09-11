@@ -7,6 +7,7 @@
 #include <sys/syscall.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <sys/time.h>
 #include <sys/utsname.h>
 #include <time.h>
 #include <unistd.h>
@@ -127,6 +128,56 @@ int rename(const char *old_path, const char *new_path)
     return (int) syscall(SYS_typephp_rename, old_path, new_path);
 }
 
+int access(const char *path, int mode)
+{
+    return (int) syscall(SYS_access, path, mode);
+}
+
+int stat(const char *path, struct stat *value)
+{
+    return (int) syscall(SYS_stat, path, value);
+}
+
+int lstat(const char *path, struct stat *value)
+{
+    return (int) syscall(SYS_lstat, path, value);
+}
+
+int fstat(int fd, struct stat *value)
+{
+    return (int) syscall(SYS_fstat, fd, value);
+}
+
+int fstatat(int directory_fd, const char *path, struct stat *value, int flags)
+{
+    return (int) syscall(SYS_newfstatat, directory_fd, path, value, flags);
+}
+
+int faccessat(int directory_fd, const char *path, int mode, int flags)
+{
+    return (int) syscall(SYS_faccessat, directory_fd, path, mode, flags);
+}
+
+int fsync(int fd)
+{
+    return (int) syscall(SYS_fsync, fd);
+}
+
+int fdatasync(int fd)
+{
+    return (int) syscall(SYS_fdatasync, fd);
+}
+
+int truncate(const char *path, off_t length)
+{
+    return (int) syscall(SYS_truncate, path, length);
+}
+
+int ftruncate(int fd, off_t length)
+{
+    return (int) syscall(SYS_ftruncate, fd, length);
+}
+
 int brk(void *address)
 {
     long result = syscall(SYS_brk, address);
@@ -180,6 +231,56 @@ time_t time(time_t *result)
     return (time_t) syscall(SYS_time, result);
 }
 
+int gettimeofday(struct timeval *value, void *timezone)
+{
+    return (int) syscall(SYS_gettimeofday, value, timezone);
+}
+
+int clock_gettime(clockid_t clock_id, struct timespec *value)
+{
+    return (int) syscall(SYS_clock_gettime, clock_id, value);
+}
+
+int clock_getres(clockid_t clock_id, struct timespec *value)
+{
+    return (int) syscall(SYS_clock_getres, clock_id, value);
+}
+
+pid_t getpid(void)
+{
+    return (pid_t) syscall(SYS_getpid);
+}
+
+pid_t getppid(void)
+{
+    return (pid_t) syscall(SYS_getppid);
+}
+
+pid_t gettid(void)
+{
+    return (pid_t) syscall(SYS_gettid);
+}
+
+uid_t getuid(void)
+{
+    return (uid_t) syscall(SYS_getuid);
+}
+
+uid_t geteuid(void)
+{
+    return (uid_t) syscall(SYS_geteuid);
+}
+
+gid_t getgid(void)
+{
+    return (gid_t) syscall(SYS_getgid);
+}
+
+gid_t getegid(void)
+{
+    return (gid_t) syscall(SYS_getegid);
+}
+
 int uname(struct utsname *value)
 {
     return (int) syscall(SYS_uname, value);
@@ -187,7 +288,7 @@ int uname(struct utsname *value)
 
 void _exit(int status)
 {
-    (void) syscall(SYS_exit, status);
+    (void) syscall(SYS_exit_group, status);
     for (;;) {
         __asm__ volatile("pause");
     }

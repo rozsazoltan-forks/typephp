@@ -120,18 +120,17 @@ time_t time(time_t *result)
 
 int gettimeofday(struct timeval *value, void *timezone)
 {
-    (void) timezone;
-    value->tv_sec = time(NULL);
-    value->tv_usec = 0;
-    return 0;
+    return (int) syscall(TYPEPHP_SYS_GETTIMEOFDAY, value, timezone);
 }
 
 int clock_gettime(clockid_t clock_id, struct timespec *value)
 {
-    (void) clock_id;
-    value->tv_sec = time(NULL);
-    value->tv_nsec = 0;
-    return 0;
+    return (int) syscall(TYPEPHP_SYS_CLOCK_GETTIME, clock_id, value);
+}
+
+int clock_getres(clockid_t clock_id, struct timespec *value)
+{
+    return (int) syscall(TYPEPHP_SYS_CLOCK_GETRES, clock_id, value);
 }
 
 unsigned int sleep(unsigned int seconds)
@@ -167,30 +166,34 @@ int rename(const char *old_path, const char *new_path)
 
 int access(const char *path, int mode)
 {
-    (void) path;
-    (void) mode;
-    unsupported("access");
+    return (int) syscall(TYPEPHP_SYS_ACCESS, path, mode);
 }
 
 int stat(const char *path, struct stat *value)
 {
-    (void) path;
-    (void) value;
-    unsupported("stat");
+    return (int) syscall(TYPEPHP_SYS_STAT, path, value);
 }
 
 int lstat(const char *path, struct stat *value)
 {
-    (void) path;
-    (void) value;
-    unsupported("lstat");
+    return (int) syscall(TYPEPHP_SYS_LSTAT, path, value);
 }
 
 int fstat(int fd, struct stat *value)
 {
-    (void) fd;
-    (void) value;
-    unsupported("fstat");
+    return (int) syscall(TYPEPHP_SYS_FSTAT, fd, value);
+}
+
+int fstatat(int directory_fd, const char *path, struct stat *value, int flags)
+{
+    return (int) syscall(
+        TYPEPHP_SYS_NEWFSTATAT, directory_fd, path, value, flags);
+}
+
+int faccessat(int directory_fd, const char *path, int mode, int flags)
+{
+    return (int) syscall(
+        TYPEPHP_SYS_FACCESSAT, directory_fd, path, mode, flags);
 }
 
 DIR *opendir(const char *path)
@@ -219,13 +222,55 @@ void rewinddir(DIR *directory)
 
 int fsync(int fd)
 {
-    (void) fd;
-    unsupported("fsync");
+    return (int) syscall(TYPEPHP_SYS_FSYNC, fd);
+}
+
+int fdatasync(int fd)
+{
+    return (int) syscall(TYPEPHP_SYS_FDATASYNC, fd);
+}
+
+int truncate(const char *path, off_t length)
+{
+    return (int) syscall(TYPEPHP_SYS_TRUNCATE, path, length);
 }
 
 int ftruncate(int fd, off_t length)
 {
-    (void) fd;
-    (void) length;
-    unsupported("ftruncate");
+    return (int) syscall(TYPEPHP_SYS_FTRUNCATE, fd, length);
+}
+
+pid_t getpid(void)
+{
+    return (pid_t) syscall(TYPEPHP_SYS_GETPID);
+}
+
+pid_t getppid(void)
+{
+    return (pid_t) syscall(TYPEPHP_SYS_GETPPID);
+}
+
+pid_t gettid(void)
+{
+    return (pid_t) syscall(TYPEPHP_SYS_GETTID);
+}
+
+uid_t getuid(void)
+{
+    return (uid_t) syscall(TYPEPHP_SYS_GETUID);
+}
+
+uid_t geteuid(void)
+{
+    return (uid_t) syscall(TYPEPHP_SYS_GETEUID);
+}
+
+gid_t getgid(void)
+{
+    return (gid_t) syscall(TYPEPHP_SYS_GETGID);
+}
+
+gid_t getegid(void)
+{
+    return (gid_t) syscall(TYPEPHP_SYS_GETEGID);
 }

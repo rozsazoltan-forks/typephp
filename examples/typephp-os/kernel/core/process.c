@@ -49,6 +49,16 @@ typedef struct {
     char domainname[UTSNAME_LENGTH];
 } user_utsname;
 
+typedef struct {
+    long seconds;
+    long nanoseconds;
+} user_timespec;
+
+typedef struct {
+    long seconds;
+    long microseconds;
+} user_timeval;
+
 enum {
     ELF_PT_LOAD = 1,
     ELF_PF_X = 1,
@@ -632,16 +642,131 @@ static long syscall_openat(long directory_fd, const char *path, int flags, int m
     return posix_syscall_result(fd);
 }
 
+static long syscall_stat_path(const char *path, struct stat *result, int no_follow)
+{
+    char resolved[USER_PATH_MAX];
+    if (!user_buffer(result, sizeof(*result))) {
+        return -EFAULT;
+    }
+    if (!resolved_path(path, resolved, sizeof(resolved))) {
+        return -EFAULT;
+    }
+    return posix_syscall_result(no_follow
+        ? lstat(resolved, result) : stat(resolved, result));
+}
+
+static long syscall_fstat(int fd, struct stat *result)
+{
+    if (!user_buffer(result, sizeof(*result))) {
+        return -EFAULT;
+    }
+    return posix_syscall_result(fstat(fd, result));
+}
+
+static long syscall_newfstatat(
+    int directory_fd, const char *path, struct stat *result, int flags)
+{
+    enum { AT_SYMLINK_NOFOLLOW_VALUE = 0x100 };
+    if ((flags & ~AT_SYMLINK_NOFOLLOW_VALUE) != 0) {
+        return -EINVAL;
+    }
+    if (directory_fd != AT_FDCWD && (path == 0 || path[0] != '/')) {
+        return -EBADF;
+    }
+    return syscall_stat_path(path, result,
+        (flags & AT_SYMLINK_NOFOLLOW_VALUE) != 0);
+}
+
+static long syscall_access_path(
+    int directory_fd, const char *path, int mode, int flags)
+{
+    enum { AT_EACCESS_VALUE = 0x200 };
+    char resolved[USER_PATH_MAX];
+    struct stat value;
+    if ((mode & ~7) != 0 || (flags & ~AT_EACCESS_VALUE) != 0) {
+        return -EINVAL;
+    }
+    if (directory_fd != AT_FDCWD && (path == 0 || path[0] != '/')) {
+        return -EBADF;
+    }
+    if (!resolved_path(path, resolved, sizeof(resolved))) {
+        return -EFAULT;
+    }
+    if (stat(resolved, &value) < 0) {
+        return -errno;
+    }
+    /* One root identity, no ACLs. FAT16 files are readable and writable;
+     * directories additionally carry an executable/search bit. */
+    if ((mode & 4) != 0 && (value.st_mode & 0444) == 0) {
+        return -EACCES;
+    }
+    if ((mode & 2) != 0 && (value.st_mode & 0222) == 0) {
+        return -EACCES;
+    }
+    if ((mode & 1) != 0 && (value.st_mode & 0111) == 0) {
+        return -EACCES;
+    }
+    return 0;
+}
+
+static long syscall_truncate(const char *path, off_t length)
+{
+    char resolved[USER_PATH_MAX];
+    int fd;
+    int result;
+    if (length < 0) {
+        return -EINVAL;
+    }
+    if (!resolved_path(path, resolved, sizeof(resolved))) {
+        return -EFAULT;
+    }
+    fd = open(resolved, O_WRONLY);
+    if (fd < 0) {
+        return -errno;
+    }
+    result = ftruncate(fd, length);
+    if (close(fd) < 0 && result == 0) {
+        result = -1;
+    }
+    return posix_syscall_result(result);
+}
+
 static long syscall_time(long *result)
 {
     long seconds = typephp_os_time_seconds();
     if (result != 0) {
         if (!user_buffer(result, sizeof(*result))) {
-            return -1;
+            return -EFAULT;
         }
         *result = seconds;
     }
     return seconds;
+}
+
+static long syscall_gettimeofday(user_timeval *result)
+{
+    if (!user_buffer(result, sizeof(*result))) {
+        return -EFAULT;
+    }
+    result->seconds = typephp_os_time_seconds();
+    result->microseconds = 0;
+    return 0;
+}
+
+static long syscall_clock(int clock_id, user_timespec *result, int resolution)
+{
+    if (clock_id != 0 && clock_id != 1) {
+        return -EINVAL;
+    }
+    if (resolution && result == 0) {
+        return 0;
+    }
+    if (!user_buffer(result, sizeof(*result))) {
+        return -EFAULT;
+    }
+    result->seconds = resolution ? 1 : typephp_os_time_seconds();
+    result->nanoseconds = 0;
+    return 0;
 }
 
 static long syscall_uname(user_utsname *result)
@@ -1024,6 +1149,14 @@ long typephp_os_syscall_dispatch(syscall_frame *frame)
             (int) frame->rdi, (const void *) frame->rsi, frame->rdx));
     case TYPEPHP_SYS_CLOSE:
         return posix_syscall_result(close((int) frame->rdi));
+    case TYPEPHP_SYS_STAT:
+        return syscall_stat_path((const char *) frame->rdi,
+            (struct stat *) frame->rsi, 0);
+    case TYPEPHP_SYS_FSTAT:
+        return syscall_fstat((int) frame->rdi, (struct stat *) frame->rsi);
+    case TYPEPHP_SYS_LSTAT:
+        return syscall_stat_path((const char *) frame->rdi,
+            (struct stat *) frame->rsi, 1);
     case TYPEPHP_SYS_LSEEK:
         return posix_syscall_result(lseek(
             (int) frame->rdi, (off_t) frame->rsi, (int) frame->rdx));
@@ -1036,6 +1169,12 @@ long typephp_os_syscall_dispatch(syscall_frame *frame)
         return syscall_munmap(frame->rdi, frame->rsi);
     case TYPEPHP_SYS_BRK:
         return syscall_brk(frame->rdi);
+    case TYPEPHP_SYS_ACCESS:
+        return syscall_access_path(AT_FDCWD, (const char *) frame->rdi,
+            (int) frame->rsi, 0);
+    case TYPEPHP_SYS_GETPID:
+    case TYPEPHP_SYS_GETTID:
+        return (long) foreground_process.pid;
     case TYPEPHP_SYS_SPAWN:
         return syscall_spawn(frame, (const char *const *) frame->rdi);
     case TYPEPHP_SYS_GETCWD:
@@ -1063,6 +1202,17 @@ long typephp_os_syscall_dispatch(syscall_frame *frame)
         }
         return posix_syscall_result(unlink(resolved));
     }
+    case TYPEPHP_SYS_FSYNC:
+    case TYPEPHP_SYS_FDATASYNC:
+        return posix_syscall_result(fsync((int) frame->rdi));
+    case TYPEPHP_SYS_TRUNCATE:
+        return syscall_truncate((const char *) frame->rdi, (off_t) frame->rsi);
+    case TYPEPHP_SYS_FTRUNCATE:
+        if ((off_t) frame->rsi < 0) {
+            return -EINVAL;
+        }
+        return posix_syscall_result(ftruncate(
+            (int) frame->rdi, (off_t) frame->rsi));
     case TYPEPHP_SYS_RENAME: {
         char old_path[USER_PATH_MAX];
         char new_path[USER_PATH_MAX];
@@ -1074,13 +1224,40 @@ long typephp_os_syscall_dispatch(syscall_frame *frame)
     }
     case TYPEPHP_SYS_TIME:
         return syscall_time((long *) frame->rdi);
+    case TYPEPHP_SYS_GETTIMEOFDAY:
+        if (frame->rsi != 0) {
+            return -EINVAL;
+        }
+        return syscall_gettimeofday((user_timeval *) frame->rdi);
+    case TYPEPHP_SYS_GETUID:
+    case TYPEPHP_SYS_GETGID:
+    case TYPEPHP_SYS_GETEUID:
+    case TYPEPHP_SYS_GETEGID:
+        return 0;
+    case TYPEPHP_SYS_GETPPID:
+        return foreground_process.parent_waiting ? 1 : 0;
+    case TYPEPHP_SYS_CLOCK_GETTIME:
+        return syscall_clock((int) frame->rdi,
+            (user_timespec *) frame->rsi, 0);
+    case TYPEPHP_SYS_CLOCK_GETRES:
+        return syscall_clock((int) frame->rdi,
+            (user_timespec *) frame->rsi, 1);
     case TYPEPHP_SYS_LISTDIR:
         return syscall_readdir((const char *) frame->rdi,
             (char *) frame->rsi, frame->rdx);
     case TYPEPHP_SYS_OPENAT:
         return syscall_openat((long) frame->rdi, (const char *) frame->rsi,
             (int) frame->rdx, (int) frame->r10);
+    case TYPEPHP_SYS_NEWFSTATAT:
+        return syscall_newfstatat((int) frame->rdi,
+            (const char *) frame->rsi, (struct stat *) frame->rdx,
+            (int) frame->r10);
+    case TYPEPHP_SYS_FACCESSAT:
+        return syscall_access_path((int) frame->rdi,
+            (const char *) frame->rsi, (int) frame->rdx,
+            (int) frame->r10);
     case TYPEPHP_SYS_EXIT:
+    case TYPEPHP_SYS_EXIT_GROUP:
         return syscall_exit(frame, (long) frame->rdi);
     case TYPEPHP_SYS_UNAME:
         return syscall_uname((user_utsname *) frame->rdi);

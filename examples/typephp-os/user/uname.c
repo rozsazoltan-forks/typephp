@@ -66,11 +66,21 @@ int main(int argc, char **argv)
             sizeof("uname: system information unavailable\n") - 1);
         return 1;
     }
-    if ((fields & FIELD_SYSNAME) != 0) print_field(identity.sysname, &first);
-    if ((fields & FIELD_NODENAME) != 0) print_field(identity.nodename, &first);
-    if ((fields & FIELD_RELEASE) != 0) print_field(identity.release, &first);
-    if ((fields & FIELD_VERSION) != 0) print_field(identity.version, &first);
-    if ((fields & FIELD_MACHINE) != 0) print_field(identity.machine, &first);
+    if ((fields & FIELD_SYSNAME) != 0) {
+        print_field(identity.sysname, &first);
+    }
+    if ((fields & FIELD_NODENAME) != 0) {
+        print_field(identity.nodename, &first);
+    }
+    if ((fields & FIELD_RELEASE) != 0) {
+        print_field(identity.release, &first);
+    }
+    if ((fields & FIELD_VERSION) != 0) {
+        print_field(identity.version, &first);
+    }
+    if ((fields & FIELD_MACHINE) != 0) {
+        print_field(identity.machine, &first);
+    }
     (void) write(STDOUT_FILENO, "\n", 1);
     return 0;
 }

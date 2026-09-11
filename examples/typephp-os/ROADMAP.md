@@ -24,6 +24,10 @@ behavior.
   packaging and ELF/binary conversion happen after tpc emits the 64-bit ELF.
 - Every completed milestone must pass the serial-output QEMU smoke test and
   leave the 64-bit payload with no undefined symbols.
+- TypePHP-OS is a single-task system by design. `fork`, `clone`, `execve`,
+  `wait`, pipes, threads, scheduling signals, and job control will not be
+  implemented. The shell may only launch one synchronous foreground ELF
+  through the private TypePHP-OS service.
 
 ## Milestones
 
@@ -46,14 +50,15 @@ behavior.
    read/write-through cache now avoids repeated ATA PIO reads while preserving
    synchronous persistence. A general VFS page cache, cross-directory rename,
    replacement semantics, and long filenames are next.
-6. **Single-task userspace — fourth slice complete.** Disk-backed ELF64
+6. **Single-task userspace — fifth slice complete.** Disk-backed ELF64
    validation/loading from FAT16,
    GDT/TSS, Ring-3 entry, synchronous
    `int 0x80` system calls, COM1 standard I/O, saved parent context, shared
    syscall definitions, complete `argv[]`
    delivery, and independent freestanding C shell/command programs. The first
    Linux-compatible file syscalls cover `openat`, `read`, `write`, `lseek`,
-   `close`, `mkdir`, `rmdir`, and `unlink`; `cat`, `write`, `touch`, and the
+   `close`, `mkdir`, `rmdir`, `unlink`, the stat/access families, synchronous
+   persistence, and file truncation; `cat`, `write`, `touch`, and the
    directory commands exercise persistent FAT16 changes. The `mv` command
    exposes same-parent rename through a private syscall until full Linux
    rename semantics are implemented. The resident shell
@@ -74,6 +79,10 @@ behavior.
    reports TypePHP-OS. Shared TypePHP userspace support is compiled once into
    `libtypephp-os.a`, allowing multiple tpc projects to link the same runtime
    platform archive. Unavailable ABI functions remain explicit panic stubs.
+   Single-task identity calls report PID/TID 1 for the resident shell, 2 for
+   its synchronous foreground command, and root UID/GID. Linux-compatible
+   wall/monotonic clock structures are exposed at the current one-second RTC
+   resolution. The `systest` ELF exercises this complete syscall slice.
    Syscall evolution follows the glibc migration rules in `user/README.md`.
 7. **Native Class memory.** Exercise Wren GC through Zend MM and verify tracing
    of PHPX fields under sustained allocation.

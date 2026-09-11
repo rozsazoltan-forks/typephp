@@ -10,4 +10,6 @@ function main(int $argc, array $argv): void
     var_dump($argv);
     var_dump(date('Y-m-d H:i:s', time()));
     var_dump(php_uname());
+    var_dump(file_exists('/HELLO.TXT'));
+    var_dump(filesize('/HELLO.TXT') > 0);
 }

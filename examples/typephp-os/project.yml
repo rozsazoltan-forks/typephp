@@ -53,4 +53,3 @@ ld-flags:
   - -Wl,-m,elf_x86_64
   - -Wl,--build-id=none
   - -Wl,-T,examples/typephp-os/boot/kernel64.ld
-  - -lgcc

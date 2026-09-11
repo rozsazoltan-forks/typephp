@@ -50,6 +50,19 @@ void *malloc(size_t size);
 int posix_memalign(void **result, size_t alignment, size_t size);
 int vsnprintf(char *buffer, size_t size, const char *format, va_list args);
 
+/* php-src's file metadata helpers query the current identity even in the
+ * freestanding kernel. The weak defaults model TypePHP-OS's sole root user;
+ * a userspace libc can override them with syscall-backed strong symbols. */
+__attribute__((weak)) unsigned int getuid(void)
+{
+    return 0;
+}
+
+__attribute__((weak)) unsigned int getgid(void)
+{
+    return 0;
+}
+
 int *__errno_location(void)
 {
     return &typephp_os_errno;

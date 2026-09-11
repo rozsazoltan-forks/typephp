@@ -7,7 +7,7 @@ PAYLOAD_BIN := $(BUILD)/kernel64.bin
 PAYLOAD_OBJECT := $(OBJECT_DIR)/kernel64-payload.o
 KERNEL := $(BUILD)/typephp-os.elf
 DISK := $(BUILD)/typephp-os.img
-USER_COMMANDS := ls cd date uname pwd cat echo write touch mkdir rm rmdir mv fault vmfault wrfault memtest
+USER_COMMANDS := ls cd date uname pwd cat echo write touch mkdir rm rmdir mv fault vmfault wrfault memtest systest
 USER_PROGRAMS := sh $(USER_COMMANDS)
 USER_SH_ELF := $(BUILD)/sh.elf
 USER_COMMAND_ELFS := $(addprefix $(BUILD)/,$(addsuffix .elf,$(USER_COMMANDS)))
@@ -38,6 +38,7 @@ KERNEL64_BOOTFLAGS := -m64 -O2 -ffreestanding -fno-builtin -fno-pic -fno-pie \
 	-fno-stack-protector -mno-red-zone -mcmodel=small -Wall -Wextra
 USER_CFLAGS := -m64 -O2 -ffreestanding -fno-builtin -fno-pic -fno-pie \
 	-fno-stack-protector -mno-red-zone -Wall -Wextra -Iuser/include -Ikernel/core/abi
+USER_HEADERS := $(shell find user/include -type f)
 USER_LDFLAGS := -m elf_x86_64 -nostdlib -static -T user/linker.ld
 TYPEPHP_OS_RUNTIME_DEFINES := -DTYPEPHP_NATIVE=1 -DPHP_NANO=1 -DPHPX_NANO=1 \
 	-D_POSIX_C_SOURCE=200809L -DTYPEPHP_NO_MAIN=1 -DPHPX_NO_EXCEPTION=1 \
@@ -105,13 +106,13 @@ $(BOOTSTRAP_OBJECT): boot/boot.S | $(OBJECT_DIR)
 $(KERNEL64_ENTRY_OBJECT): boot/kernel64-entry.S | $(OBJECT_DIR)
 	gcc $(KERNEL64_BOOTFLAGS) -c $< -o $@
 
-$(OBJECT_DIR)/%.o: user/%.c kernel/core/abi/typephp_os_syscall.h | $(OBJECT_DIR)
+$(OBJECT_DIR)/%.o: user/%.c $(USER_HEADERS) kernel/core/abi/typephp_os_syscall.h | $(OBJECT_DIR)
 	gcc $(USER_CFLAGS) -c $< -o $@
 
 $(USER_CRT0_OBJECT): user/crt0.S kernel/core/abi/typephp_os_syscall.h | $(OBJECT_DIR)
 	gcc $(USER_CFLAGS) -c $< -o $@
 
-$(OBJECT_DIR)/user-libc.o: user/libc.c kernel/core/abi/typephp_os_syscall.h | $(OBJECT_DIR)
+$(OBJECT_DIR)/user-libc.o: user/libc.c $(USER_HEADERS) kernel/core/abi/typephp_os_syscall.h | $(OBJECT_DIR)
 	gcc $(USER_CFLAGS) -c $< -o $@
 
 $(OBJECT_DIR)/user-syscall.o: user/syscall.S kernel/core/abi/typephp_os_syscall.h | $(OBJECT_DIR)

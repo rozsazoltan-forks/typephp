@@ -56,4 +56,3 @@ link-paths:
   - ../../build
 link-libs:
   - typephp-os
-  - gcc

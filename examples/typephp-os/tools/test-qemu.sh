@@ -21,7 +21,7 @@ if timeout 35 qemu-system-x86_64 \
         -no-shutdown \
         -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
         >"${log}" 2>&1 \
-        <<< $'\ndate\nuname\nuname -a\necho Hello TypePHP userspace\nhello Dynamically loaded\ntnhello alpha beta\nmissing\nbad\nls /BIN\ncat HELLO.TXT\ntouch /EXPAND/F62.TXT\nls /EXPAND\nwrite NOTE.TXT Hello from Ring 3\ncat NOTE.TXT\ntouch EMPTY.TXT\nmkdir TMP\nls\nrm NOTE.TXT\ncat NOTE.TXT\nrmdir TMP\ncd TMP\nmkdir WORK\ncd WORK\nwrite NOTE.TXT Nested directory write\ncat NOTE.TXT\nmkdir SUB\ncd SUB\nwrite DEEP.TXT Deep directory write\nmv DEEP.TXT MOVED.TXT\ncat MOVED.TXT\ncat DEEP.TXT\npwd\ncd ..\nrmdir SUB\nrm SUB/MOVED.TXT\nrmdir SUB\nls\nrm NOTE.TXT\ncd ..\nrmdir WORK\ncd WORK\nmemtest\nfault\nvmfault\nwrfault\ndate\npwd\ncd BIN\npwd\nls\ncd ..\ncd DOCS\npwd\nls\ncd ..\nls\n'; then
+        <<< $'\ndate\nuname\nuname -a\necho Hello TypePHP userspace\nhello Dynamically loaded\ntnhello alpha beta\nsystest\nmissing\nbad\nls /BIN\ncat HELLO.TXT\ntouch /EXPAND/F62.TXT\nls /EXPAND\nwrite NOTE.TXT Hello from Ring 3\ncat NOTE.TXT\ntouch EMPTY.TXT\nmkdir TMP\nls\nrm NOTE.TXT\ncat NOTE.TXT\nrmdir TMP\ncd TMP\nmkdir WORK\ncd WORK\nwrite NOTE.TXT Nested directory write\ncat NOTE.TXT\nmkdir SUB\ncd SUB\nwrite DEEP.TXT Deep directory write\nmv DEEP.TXT MOVED.TXT\ncat MOVED.TXT\ncat DEEP.TXT\npwd\ncd ..\nrmdir SUB\nrm SUB/MOVED.TXT\nrmdir SUB\nls\nrm NOTE.TXT\ncd ..\nrmdir WORK\ncd WORK\nmemtest\nfault\nvmfault\nwrfault\ndate\npwd\ncd BIN\npwd\nls\ncd ..\ncd DOCS\npwd\nls\ncd ..\nls\n'; then
     status=0
 else
     status=$?
@@ -51,10 +51,10 @@ grep -q "Prime list: 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53,
 grep -q "Process 1: sh.elf (Ring 3)" "${log}"
 grep -q "TypePHP-OS user shell" "${log}"
 grep -q "Ring 3 confirmed" "${log}"
-grep -q "Commands: ls, cd, pwd, date, uname, cat, echo, write, touch, mkdir, rm, rmdir, mv, memtest, fault, vmfault, wrfault" "${log}"
+grep -q "Commands: ls, cd, pwd, date, uname, cat, echo, write, touch, mkdir, rm, rmdir, mv, memtest, systest, fault, vmfault, wrfault" "${log}"
 grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} UTC' "${log}"
-grep -q '^TypePHP-OS$' "${log}"
-grep -q '^TypePHP-OS typephp-os 0.1 TypePHP Nano user mode x86_64$' "${log}"
+grep -Fq $'TypePHP-OS\r' "${log}"
+grep -Fq $'TypePHP-OS typephp-os 0.1 TypePHP Nano user mode x86_64\r' "${log}"
 grep -q '^Hello TypePHP userspace' "${log}"
 grep -q '^Dynamically loaded' "${log}"
 grep -Fq 'Hello World!string(6) "8.4.14"' "${log}"
@@ -65,6 +65,11 @@ grep -Fq 'string(7) "tnhello"' "${log}"
 grep -Fq 'string(5) "alpha"' "${log}"
 grep -Fq 'string(4) "beta"' "${log}"
 grep -Fq 'string(55) "TypePHP-OS typephp-os 0.1 TypePHP Nano user mode x86_64"' "${log}"
+if [[ $(grep -c '^bool(true)' "${log}") -lt 2 ]]; then
+    echo "the Nano smoke program did not complete both file metadata checks" >&2
+    exit 1
+fi
+grep -q '^basic syscalls: OK' "${log}"
 if grep -q 'unsupported TypePHP-OS user ABI' "${log}"; then
     echo "the Nano smoke program reached an unsupported userspace ABI" >&2
     exit 1
