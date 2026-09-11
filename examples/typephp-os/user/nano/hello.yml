@@ -1,0 +1,64 @@
+name: typephp_os_user_hello
+mode: bin
+sources:
+  - hello.php
+  - host.cc
+  - posix.c
+  - ../../kernel/core/abi/libc.c
+  - ../../kernel/core/abi/cxx.cpp
+  - ../../kernel/core/abi/unimplemented.S
+  - ../../thirdparty/openlibm/src
+objects:
+  - ../../build/objects/nano-crt0.o
+  - ../../build/objects/nano-syscall.o
+build-dir: ../../build/generated-user-hello
+output: ../../build/tnhello.elf
+cxx-std: c++17
+include-paths:
+  - ../../kernel/core/abi
+  - ../../thirdparty/openlibm/include
+  - ../../thirdparty/openlibm/src
+  - ../../thirdparty/openlibm/amd64
+defines:
+  - TYPEPHP_NO_MAIN=1
+  - PHPX_NO_EXCEPTION=1
+  - PHPX_NO_RTTI=1
+  - PHP_NANO_NO_LIBC=1
+  - HAVE_SYS_UTSNAME_H=1
+  - __NO_CTYPE=1
+  - ZEND_MM_ERROR=0
+  - ZEND_MM_CUSTOM=0
+  - ASSEMBLER=1
+  - __BSD_VISIBLE=1
+cxx-flags:
+  - -ffreestanding
+  - -fno-builtin
+  - -fno-stack-protector
+  - -fno-pic
+  - -fno-pie
+  - -m64
+  - -mno-red-zone
+  - -mcmodel=small
+  - -fno-rtti
+  - -fno-threadsafe-statics
+c-flags:
+  - -ffreestanding
+  - -fno-builtin
+  - -fno-stack-protector
+  - -fno-pic
+  - -fno-pie
+  - -m64
+  - -mno-red-zone
+  - -mcmodel=small
+asm-flags:
+  - -m64
+  - -mno-red-zone
+  - -mcmodel=small
+ld-flags:
+  - -nostdlib
+  - -no-pie
+  - -Wl,-m,elf_x86_64
+  - -Wl,--build-id=none
+  - -Wl,-T,examples/typephp-os/user/nano/linker.ld
+  - -Wl,--defsym,USER_BASE=0x41000000
+  - -lgcc

@@ -72,10 +72,10 @@ $(OBJECT_DIR)/user-syscall.o: user/syscall.S kernel/core/abi/typephp_os_syscall.
 	gcc $(USER_CFLAGS) -c $< -o $@
 
 $(USER_SH_ELF): $(OBJECT_DIR)/sh.o $(USER_CRT0_OBJECT) $(USER_LIBC_OBJECTS) user/linker.ld | $(BUILD)
-	ld $(USER_LDFLAGS) --defsym USER_BASE=0x2000000 -o $@ $(filter %.o,$^)
+	ld $(USER_LDFLAGS) --defsym USER_BASE=0x40000000 -o $@ $(filter %.o,$^)
 
 $(USER_COMMAND_ELFS): $(BUILD)/%.elf: $(OBJECT_DIR)/%.o $(USER_CRT0_OBJECT) $(USER_LIBC_OBJECTS) user/linker.ld | $(BUILD)
-	ld $(USER_LDFLAGS) --defsym USER_BASE=0x2100000 -o $@ $(filter %.o,$^)
+	ld $(USER_LDFLAGS) --defsym USER_BASE=0x41000000 -o $@ $(filter %.o,$^)
 
 $(KERNEL): payload
 	objcopy -O binary $(PAYLOAD_ELF) $(PAYLOAD_BIN)

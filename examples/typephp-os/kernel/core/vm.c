@@ -18,12 +18,14 @@ enum {
     PAGE_USER = 4,
     PAGE_HUGE = 128,
     PAGE_OWNED = 512,
-    USER_FIRST_PDE = 16,
-    USER_LAST_PDE = 17,
+    USER_FIRST_PDE = 0,
+    USER_LAST_PDE = 127,
 };
 
 #define PAGE_NX (UINT64_C(1) << 63)
 #define PAGE_ADDRESS UINT64_C(0x000ffffffffff000)
+#define USER_ADDRESS_BEGIN UINT64_C(0x40000000)
+#define USER_ADDRESS_END UINT64_C(0x50000000)
 
 extern uint64_t physical_page_allocate(void);
 extern void physical_page_free(uint64_t page);
@@ -56,19 +58,22 @@ static uint64_t *page_directory(uint64_t address_space)
         return 0;
     }
     uint64_t *pdp = page_table(pml4[0]);
-    if ((pdp[0] & PAGE_PRESENT) == 0) {
+    if ((pdp[1] & PAGE_PRESENT) == 0) {
         return 0;
     }
-    return page_table(pdp[0]);
+    return page_table(pdp[1]);
 }
 
 uint64_t typephp_vm_create(void)
 {
     const uint64_t pml4_page = physical_page_allocate();
     const uint64_t pdp_page = physical_page_allocate();
-    const uint64_t pd_page = physical_page_allocate();
-    if (pml4_page == 0 || pdp_page == 0 || pd_page == 0) {
-        if (pd_page != 0) physical_page_free(pd_page);
+    const uint64_t kernel_pd_page = physical_page_allocate();
+    const uint64_t user_pd_page = physical_page_allocate();
+    if (pml4_page == 0 || pdp_page == 0
+        || kernel_pd_page == 0 || user_pd_page == 0) {
+        if (user_pd_page != 0) physical_page_free(user_pd_page);
+        if (kernel_pd_page != 0) physical_page_free(kernel_pd_page);
         if (pdp_page != 0) physical_page_free(pdp_page);
         if (pml4_page != 0) physical_page_free(pml4_page);
         return 0;
@@ -76,14 +81,14 @@ uint64_t typephp_vm_create(void)
 
     uint64_t *pml4 = page_table(pml4_page);
     uint64_t *pdp = page_table(pdp_page);
-    uint64_t *pd = page_table(pd_page);
+    uint64_t *kernel_pd = page_table(kernel_pd_page);
     pml4[0] = pdp_page | PAGE_PRESENT | PAGE_WRITE | PAGE_USER;
-    pdp[0] = pd_page | PAGE_PRESENT | PAGE_WRITE | PAGE_USER;
+    pdp[0] = kernel_pd_page | PAGE_PRESENT | PAGE_WRITE;
+    pdp[1] = user_pd_page | PAGE_PRESENT | PAGE_WRITE | PAGE_USER;
     for (uint64_t index = 0; index < 512; ++index) {
-        pd[index] = index * UINT64_C(0x200000) | PAGE_PRESENT | PAGE_WRITE | PAGE_HUGE;
+        kernel_pd[index] = index * UINT64_C(0x200000)
+            | PAGE_PRESENT | PAGE_WRITE | PAGE_HUGE;
     }
-    pd[USER_FIRST_PDE] = 0;
-    pd[USER_LAST_PDE] = 0;
     return pml4_page;
 }
 
@@ -106,7 +111,7 @@ int typephp_vm_map_user(
     uint64_t end;
     uint64_t *pd = page_directory(address_space);
     if (pd == 0 || !align_range(address, size, &begin, &end)
-        || begin < UINT64_C(0x2000000) || end > UINT64_C(0x2400000)) {
+        || begin < USER_ADDRESS_BEGIN || end > USER_ADDRESS_END) {
         return 0;
     }
 
@@ -156,7 +161,7 @@ int typephp_vm_user_range_free(
     uint64_t end;
     uint64_t *pd = page_directory(address_space);
     if (pd == 0 || !align_range(address, size, &begin, &end)
-        || begin < UINT64_C(0x2000000) || end > UINT64_C(0x2400000)) {
+        || begin < USER_ADDRESS_BEGIN || end > USER_ADDRESS_END) {
         return 0;
     }
     for (uint64_t cursor = begin; cursor < end; cursor += PAGE_SIZE) {
@@ -180,7 +185,7 @@ int typephp_vm_unmap_user(
     uint64_t end;
     uint64_t *pd = page_directory(address_space);
     if (pd == 0 || !align_range(address, size, &begin, &end)
-        || begin < UINT64_C(0x2000000) || end > UINT64_C(0x2400000)) {
+        || begin < USER_ADDRESS_BEGIN || end > USER_ADDRESS_END) {
         return 0;
     }
     for (uint64_t cursor = begin; cursor < end; cursor += PAGE_SIZE) {
@@ -208,7 +213,7 @@ int typephp_vm_protect_user(
     uint64_t end;
     uint64_t *pd = page_directory(address_space);
     if (pd == 0 || !align_range(address, size, &begin, &end)
-        || begin < UINT64_C(0x2000000) || end > UINT64_C(0x2400000)) {
+        || begin < USER_ADDRESS_BEGIN || end > USER_ADDRESS_END) {
         return 0;
     }
     for (uint64_t cursor = begin; cursor < end; cursor += PAGE_SIZE) {
@@ -244,7 +249,7 @@ int typephp_vm_user_range(
         return 1;
     }
     if (pd == 0 || !align_range(address, size, &begin, &end)
-        || begin < UINT64_C(0x2000000) || end > UINT64_C(0x2400000)) {
+        || begin < USER_ADDRESS_BEGIN || end > USER_ADDRESS_END) {
         return 0;
     }
     for (uint64_t cursor = begin; cursor < end; cursor += PAGE_SIZE) {
@@ -267,7 +272,7 @@ void typephp_vm_destroy(uint64_t address_space)
 {
     uint64_t *pml4 = page_table(address_space);
     uint64_t *pdp = page_table(pml4[0]);
-    uint64_t *pd = page_table(pdp[0]);
+    uint64_t *pd = page_table(pdp[1]);
     for (uint64_t pd_index = USER_FIRST_PDE; pd_index <= USER_LAST_PDE; ++pd_index) {
         if ((pd[pd_index] & PAGE_PRESENT) == 0 || (pd[pd_index] & PAGE_HUGE) != 0) {
             continue;
@@ -280,6 +285,7 @@ void typephp_vm_destroy(uint64_t address_space)
         }
         physical_page_free(pd[pd_index] & PAGE_ADDRESS);
     }
+    physical_page_free(pdp[1] & PAGE_ADDRESS);
     physical_page_free(pdp[0] & PAGE_ADDRESS);
     physical_page_free(pml4[0] & PAGE_ADDRESS);
     physical_page_free(address_space);
