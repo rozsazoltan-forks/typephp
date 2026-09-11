@@ -1,17 +1,9 @@
 #ifndef TYPEPHP_OS_USER_SYSCALL_H
 #define TYPEPHP_OS_USER_SYSCALL_H
 
-typedef unsigned long size_t;
+#include <typephp_os_syscall.h>
 
-enum {
-    TYPEPHP_SYS_READ = 0,
-    TYPEPHP_SYS_WRITE = 1,
-    TYPEPHP_SYS_EXEC = 59,
-    TYPEPHP_SYS_EXIT = 60,
-    TYPEPHP_SYS_GETCWD = 79,
-    TYPEPHP_SYS_CHDIR = 80,
-    TYPEPHP_SYS_READDIR = 217,
-};
+typedef unsigned long size_t;
 
 static inline long typephp_syscall(
     long number, long first, long second, long third)

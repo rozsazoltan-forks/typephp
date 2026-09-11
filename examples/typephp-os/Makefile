@@ -6,15 +6,16 @@ PAYLOAD_BIN := $(BUILD)/kernel64.bin
 PAYLOAD_OBJECT := $(OBJECT_DIR)/kernel64-payload.o
 KERNEL := $(BUILD)/typephp-os.elf
 DISK := $(BUILD)/typephp-os.img
+USER_COMMANDS := ls cd date pwd fault
+USER_PROGRAMS := sh $(USER_COMMANDS)
 USER_SH_ELF := $(BUILD)/sh.elf
-USER_LS_ELF := $(BUILD)/ls.elf
-USER_CD_ELF := $(BUILD)/cd.elf
-USER_IMAGES := $(OBJECT_DIR)/sh-image.o $(OBJECT_DIR)/ls-image.o $(OBJECT_DIR)/cd-image.o
+USER_COMMAND_ELFS := $(addprefix $(BUILD)/,$(addsuffix .elf,$(USER_COMMANDS)))
+USER_IMAGES := $(addprefix $(OBJECT_DIR)/,$(addsuffix -image.o,$(USER_PROGRAMS)))
 
 BOOTFLAGS := -m32 -O2 -ffreestanding -fno-pic -fno-pie \
 	-fno-stack-protector -Wall -Wextra
 USER_CFLAGS := -m64 -O2 -ffreestanding -fno-builtin -fno-pic -fno-pie \
-	-fno-stack-protector -mno-red-zone -Wall -Wextra -Iuser
+	-fno-stack-protector -mno-red-zone -Wall -Wextra -Iuser -Ifreestanding/abi
 USER_LDFLAGS := -m elf_x86_64 -nostdlib -static -T user/linker.ld
 
 .PHONY: all payload objects disk run test clean
@@ -43,41 +44,20 @@ $(OBJECT_DIR):
 $(BOOTSTRAP_OBJECT): freestanding/boot.S | $(OBJECT_DIR)
 	gcc $(BOOTFLAGS) -c $< -o $@
 
-$(OBJECT_DIR)/sh.o: user/sh.c user/syscall.h | $(OBJECT_DIR)
-	gcc $(USER_CFLAGS) -c $< -o $@
-
-$(OBJECT_DIR)/ls.o: user/ls.c user/syscall.h | $(OBJECT_DIR)
-	gcc $(USER_CFLAGS) -c $< -o $@
-
-$(OBJECT_DIR)/cd.o: user/cd.c user/syscall.h | $(OBJECT_DIR)
+$(OBJECT_DIR)/%.o: user/%.c user/syscall.h freestanding/abi/typephp_os_syscall.h | $(OBJECT_DIR)
 	gcc $(USER_CFLAGS) -c $< -o $@
 
 $(USER_SH_ELF): $(OBJECT_DIR)/sh.o user/linker.ld | $(BUILD)
 	ld $(USER_LDFLAGS) --defsym USER_BASE=0x2000000 -o $@ $<
 
-$(USER_LS_ELF): $(OBJECT_DIR)/ls.o user/linker.ld | $(BUILD)
+$(USER_COMMAND_ELFS): $(BUILD)/%.elf: $(OBJECT_DIR)/%.o user/linker.ld | $(BUILD)
 	ld $(USER_LDFLAGS) --defsym USER_BASE=0x2100000 -o $@ $<
 
-$(USER_CD_ELF): $(OBJECT_DIR)/cd.o user/linker.ld | $(BUILD)
-	ld $(USER_LDFLAGS) --defsym USER_BASE=0x2200000 -o $@ $<
-
-$(OBJECT_DIR)/sh-image.o: $(USER_SH_ELF) | $(OBJECT_DIR)
+$(OBJECT_DIR)/%-image.o: $(BUILD)/%.elf | $(OBJECT_DIR)
 	objcopy -I binary -O elf64-x86-64 -B i386:x86-64 \
 		--rename-section .data=.rodata.user_elf,alloc,load,readonly,data,contents \
-		--redefine-sym _binary_build_sh_elf_start=typephp_user_sh_elf_start \
-		--redefine-sym _binary_build_sh_elf_end=typephp_user_sh_elf_end $< $@
-
-$(OBJECT_DIR)/ls-image.o: $(USER_LS_ELF) | $(OBJECT_DIR)
-	objcopy -I binary -O elf64-x86-64 -B i386:x86-64 \
-		--rename-section .data=.rodata.user_elf,alloc,load,readonly,data,contents \
-		--redefine-sym _binary_build_ls_elf_start=typephp_user_ls_elf_start \
-		--redefine-sym _binary_build_ls_elf_end=typephp_user_ls_elf_end $< $@
-
-$(OBJECT_DIR)/cd-image.o: $(USER_CD_ELF) | $(OBJECT_DIR)
-	objcopy -I binary -O elf64-x86-64 -B i386:x86-64 \
-		--rename-section .data=.rodata.user_elf,alloc,load,readonly,data,contents \
-		--redefine-sym _binary_build_cd_elf_start=typephp_user_cd_elf_start \
-		--redefine-sym _binary_build_cd_elf_end=typephp_user_cd_elf_end $< $@
+		--redefine-sym _binary_build_$*_elf_start=typephp_user_$*_elf_start \
+		--redefine-sym _binary_build_$*_elf_end=typephp_user_$*_elf_end $< $@
 
 $(KERNEL): payload
 	objcopy -O binary $(PAYLOAD_ELF) $(PAYLOAD_BIN)

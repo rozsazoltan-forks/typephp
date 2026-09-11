@@ -1,13 +1,5 @@
 <?php
 
-final class KernelGreeting
-{
-    public function render(string $now): string
-    {
-        return $now . ' Hello TypePHP-OS!';
-    }
-}
-
 function writeLine(string $text, int $color): void
 {
     kernel_write($text, $color);
@@ -176,7 +168,5 @@ function main(): void
     runMathSelfCheck();
     runFilesystemSelfCheck();
     runPrimeDemo(100);
-    $greeting = new KernelGreeting();
-    echo $greeting->render(date('Y-m-d H:i:s')), "\n";
     kernel_process_start();
 }

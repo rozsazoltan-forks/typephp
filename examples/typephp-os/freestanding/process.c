@@ -8,6 +8,7 @@
 */
 
 #include "typephp_os_abi.h"
+#include "typephp_os_syscall.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -22,13 +23,6 @@ enum {
     KERNEL_CODE_SELECTOR = 0x08,
     TSS_SELECTOR = 0x28,
     IDT_SYSCALL = 0x80,
-    SYS_READ = 0,
-    SYS_WRITE = 1,
-    SYS_EXEC = 59,
-    SYS_EXIT = 60,
-    SYS_GETCWD = 79,
-    SYS_CHDIR = 80,
-    SYS_READDIR = 217,
 };
 
 enum {
@@ -116,6 +110,31 @@ typedef struct {
 } syscall_frame;
 
 typedef struct {
+    uint64_t rax;
+    uint64_t r15;
+    uint64_t r14;
+    uint64_t r13;
+    uint64_t r12;
+    uint64_t r11;
+    uint64_t r10;
+    uint64_t r9;
+    uint64_t r8;
+    uint64_t rbp;
+    uint64_t rdi;
+    uint64_t rsi;
+    uint64_t rdx;
+    uint64_t rcx;
+    uint64_t rbx;
+    uint64_t vector;
+    uint64_t error;
+    uint64_t rip;
+    uint64_t cs;
+    uint64_t rflags;
+    uint64_t rsp;
+    uint64_t ss;
+} exception_frame;
+
+typedef struct {
     uint64_t pid;
     int running;
     char cwd[16];
@@ -129,8 +148,24 @@ extern const unsigned char typephp_user_ls_elf_start[];
 extern const unsigned char typephp_user_ls_elf_end[];
 extern const unsigned char typephp_user_cd_elf_start[];
 extern const unsigned char typephp_user_cd_elf_end[];
+extern const unsigned char typephp_user_date_elf_start[];
+extern const unsigned char typephp_user_date_elf_end[];
+extern const unsigned char typephp_user_pwd_elf_start[];
+extern const unsigned char typephp_user_pwd_elf_end[];
+extern const unsigned char typephp_user_fault_elf_start[];
+extern const unsigned char typephp_user_fault_elf_end[];
 extern void typephp_os_syscall_entry(void);
 extern void typephp_os_enter_user(uint64_t entry, uint64_t stack);
+extern long typephp_os_time_seconds(void);
+extern void typephp_os_exception_0(void);
+extern void typephp_os_exception_3(void);
+extern void typephp_os_exception_5(void);
+extern void typephp_os_exception_6(void);
+extern void typephp_os_exception_10(void);
+extern void typephp_os_exception_11(void);
+extern void typephp_os_exception_12(void);
+extern void typephp_os_exception_13(void);
+extern void typephp_os_exception_14(void);
 
 static uint64_t gdt[7] __attribute__((aligned(16)));
 static idt_gate idt[256] __attribute__((aligned(16)));
@@ -176,10 +211,19 @@ static void install_tss_descriptor(uint64_t base, uint32_t limit)
     gdt[6] = base >> 32u;
 }
 
+static void install_idt_gate(unsigned int vector, void (*entry)(void), uint8_t attributes)
+{
+    uintptr_t handler = (uintptr_t) entry;
+    idt[vector].offset_low = handler & 0xffffu;
+    idt[vector].selector = KERNEL_CODE_SELECTOR;
+    idt[vector].attributes = attributes;
+    idt[vector].offset_middle = (handler >> 16u) & 0xffffu;
+    idt[vector].offset_high = handler >> 32u;
+}
+
 static void install_descriptor_tables(void)
 {
     descriptor_pointer pointer;
-    uintptr_t handler = (uintptr_t) typephp_os_syscall_entry;
 
     memset(gdt, 0, sizeof(gdt));
     gdt[1] = UINT64_C(0x00af9a000000ffff);
@@ -205,11 +249,16 @@ static void install_descriptor_tables(void)
         : "rax", "memory");
 
     memset(idt, 0, sizeof(idt));
-    idt[IDT_SYSCALL].offset_low = handler & 0xffffu;
-    idt[IDT_SYSCALL].selector = KERNEL_CODE_SELECTOR;
-    idt[IDT_SYSCALL].attributes = 0xee; /* present, DPL 3, interrupt gate */
-    idt[IDT_SYSCALL].offset_middle = (handler >> 16u) & 0xffffu;
-    idt[IDT_SYSCALL].offset_high = handler >> 32u;
+    install_idt_gate(0, typephp_os_exception_0, 0x8e);
+    install_idt_gate(3, typephp_os_exception_3, 0xee);
+    install_idt_gate(5, typephp_os_exception_5, 0x8e);
+    install_idt_gate(6, typephp_os_exception_6, 0x8e);
+    install_idt_gate(10, typephp_os_exception_10, 0x8e);
+    install_idt_gate(11, typephp_os_exception_11, 0x8e);
+    install_idt_gate(12, typephp_os_exception_12, 0x8e);
+    install_idt_gate(13, typephp_os_exception_13, 0x8e);
+    install_idt_gate(14, typephp_os_exception_14, 0x8e);
+    install_idt_gate(IDT_SYSCALL, typephp_os_syscall_entry, 0xee);
     pointer.limit = sizeof(idt) - 1u;
     pointer.base = (uint64_t) (uintptr_t) idt;
     __asm__ volatile("lidt %0" : : "m"(pointer) : "memory");
@@ -270,6 +319,21 @@ static int command_image(
     if (strcmp(name, "cd") == 0) {
         *image = typephp_user_cd_elf_start;
         *image_end = typephp_user_cd_elf_end;
+        return 1;
+    }
+    if (strcmp(name, "date") == 0) {
+        *image = typephp_user_date_elf_start;
+        *image_end = typephp_user_date_elf_end;
+        return 1;
+    }
+    if (strcmp(name, "pwd") == 0) {
+        *image = typephp_user_pwd_elf_start;
+        *image_end = typephp_user_pwd_elf_end;
+        return 1;
+    }
+    if (strcmp(name, "fault") == 0) {
+        *image = typephp_user_fault_elf_start;
+        *image_end = typephp_user_fault_elf_end;
         return 1;
     }
     return 0;
@@ -380,31 +444,121 @@ static long syscall_exit(syscall_frame *frame, long status)
     return status;
 }
 
+static void write_unsigned(uint64_t value)
+{
+    char digits[20];
+    size_t count = 0;
+    do {
+        digits[count++] = (char) ('0' + value % 10u);
+        value /= 10u;
+    } while (value != 0);
+    while (count != 0) {
+        --count;
+        typephp_os_write(&digits[count], 1);
+    }
+}
+
+static void write_hex(uint64_t value)
+{
+    static const char digits[] = "0123456789abcdef";
+    char output[18];
+    int index;
+    output[0] = '0';
+    output[1] = 'x';
+    for (index = 0; index < 16; ++index) {
+        output[index + 2] = digits[(value >> ((15 - index) * 4)) & 0x0fu];
+    }
+    typephp_os_write(output, sizeof(output));
+}
+
+static const char *exception_name(uint64_t vector)
+{
+    switch (vector) {
+    case 0: return "divide error";
+    case 3: return "breakpoint";
+    case 5: return "bounds";
+    case 6: return "invalid opcode";
+    case 10: return "invalid TSS";
+    case 11: return "segment not present";
+    case 12: return "stack fault";
+    case 13: return "general protection";
+    case 14: return "page fault";
+    default: return "unknown";
+    }
+}
+
+static void restore_shell_after_fault(exception_frame *frame)
+{
+    syscall_frame *parent = &foreground_process.parent_frame;
+    /* The general-register prefixes of both frame formats are identical. */
+    memcpy(frame, parent, offsetof(syscall_frame, rip));
+    frame->rax = (uint64_t) -1;
+    frame->rip = parent->rip;
+    frame->cs = parent->cs;
+    frame->rflags = parent->rflags;
+    frame->rsp = parent->rsp;
+    frame->ss = parent->ss;
+    foreground_process.parent_waiting = 0;
+    foreground_process.pid = 1;
+}
+
+void typephp_os_exception_dispatch(exception_frame *frame)
+{
+    uint64_t fault_address = 0;
+    if (frame->vector == 14) {
+        __asm__ volatile("mov %%cr2, %0" : "=r"(fault_address));
+    }
+
+    typephp_os_write("User process ", sizeof("User process ") - 1);
+    write_unsigned(foreground_process.pid);
+    typephp_os_write(" fault: ", sizeof(" fault: ") - 1);
+    typephp_os_write(exception_name(frame->vector), strlen(exception_name(frame->vector)));
+    typephp_os_write(" (#", sizeof(" (#") - 1);
+    write_unsigned(frame->vector);
+    typephp_os_write(") at ", sizeof(") at ") - 1);
+    write_hex(frame->rip);
+    if (frame->vector == 14) {
+        typephp_os_write(", address ", sizeof(", address ") - 1);
+        write_hex(fault_address);
+    }
+    typephp_os_write("\n", 1);
+
+    if ((frame->cs & 3u) != 3u) {
+        panic("kernel-mode exception\n");
+    }
+    if (!foreground_process.parent_waiting) {
+        panic("resident shell faulted\n");
+    }
+    restore_shell_after_fault(frame);
+}
+
 long typephp_os_syscall_dispatch(syscall_frame *frame)
 {
     switch (frame->rax) {
-    case SYS_READ:
+    case TYPEPHP_SYS_READ:
         if (frame->rdi != 0 || !user_buffer((void *) frame->rsi, frame->rdx)) {
             return -1;
         }
         return typephp_os_console_read((void *) frame->rsi, frame->rdx);
-    case SYS_WRITE:
+    case TYPEPHP_SYS_WRITE:
         if ((frame->rdi != 1 && frame->rdi != 2)
             || !user_buffer((void *) frame->rsi, frame->rdx)) {
             return -1;
         }
         typephp_os_write((const char *) frame->rsi, frame->rdx);
         return (long) frame->rdx;
-    case SYS_EXEC:
+    case TYPEPHP_SYS_EXEC:
         return syscall_exec(frame, (const char *) frame->rdi, (const char *) frame->rsi);
-    case SYS_GETCWD:
+    case TYPEPHP_SYS_GETCWD:
         return syscall_getcwd((char *) frame->rdi, frame->rsi);
-    case SYS_CHDIR:
+    case TYPEPHP_SYS_CHDIR:
         return syscall_chdir((const char *) frame->rdi);
-    case SYS_READDIR:
+    case TYPEPHP_SYS_TIME:
+        return typephp_os_time_seconds();
+    case TYPEPHP_SYS_READDIR:
         return syscall_readdir((const char *) frame->rdi,
             (char *) frame->rsi, frame->rdx);
-    case SYS_EXIT:
+    case TYPEPHP_SYS_EXIT:
         return syscall_exit(frame, (long) frame->rdi);
     default:
         return -1;

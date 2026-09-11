@@ -43,8 +43,9 @@ behavior.
    nested directories and long filenames are next.
 6. **Single-task userspace — first slice complete.** ELF64 validation/loading,
    supervisor/user page separation, GDT/TSS, Ring-3 entry, synchronous
-   `int 0x80` system calls, COM1 standard I/O, saved parent context, and
-   independent freestanding C `sh`, `ls`, and `cd` programs.
+   `int 0x80` system calls, COM1 standard I/O, saved parent context, shared
+   syscall definitions, reusable command address space, and independent
+   freestanding C `sh`, `ls`, `cd`, `pwd`, and `date` programs.
 7. **Native Class memory.** Exercise Wren GC through Zend MM and verify tracing
    of PHPX fields under sustained allocation.
 8. **Kernel services.** Interrupt-driven timer, keyboard, physical-page

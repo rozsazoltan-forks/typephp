@@ -6,8 +6,9 @@ PHP, libc, or libstdc++. TypePHP implements the startup self-check, a custom
 Zend class, the prime-number demo, and filesystem services. Small C and
 assembly layers provide the machine bootstrap, current kernel services, and
 the temporary freestanding userspace programs.
-The first userspace programs (`sh`, `ls`, and `cd`) are deliberately written
-in freestanding C until tpc can target this small userspace ABI.
+The first userspace programs (`sh`, `ls`, `cd`, `pwd`, and `date`) are
+deliberately written in freestanding C until tpc can target this small
+userspace ABI.
 
 The architectural rules and staged plan are maintained in
 [ROADMAP.md](ROADMAP.md).
@@ -62,8 +63,8 @@ The build produces these useful files:
   tpc;
 - `build/typephp-os.elf`: the final Multiboot kernel accepted by QEMU;
 - `build/typephp-os.img`: a persistent 32 MiB FAT16 disk image.
-- `build/sh.elf`, `build/ls.elf`, and `build/cd.elf`: independent ELF64 Ring-3
-  programs built without libc.
+- `build/sh.elf`, `build/ls.elf`, `build/cd.elf`, `build/pwd.elf`, and
+  `build/date.elf`: independent ELF64 Ring-3 programs built without libc.
 
 Run the automated serial-output smoke test with:
 
@@ -73,7 +74,7 @@ make test
 
 The Makefile compiles the 32-bit Multiboot bootstrap externally because its
 `-m32` ABI cannot participate in the 64-bit payload link. It also builds the
-three deliberately small freestanding C userspace ELF files. All ordinary
+five deliberately small freestanding C userspace ELF files. All ordinary
 64-bit `.c`, `.cc`, and `.S` files remain in `project.yml` and use tpc's generic
 `c-flags`, `cxx-flags`, and `asm-flags`. Generic same-ABI prebuilt objects can
 be supplied with `objects`; this is how read-only copies of the user ELF files
@@ -139,12 +140,15 @@ After the TypePHP self-check, the kernel validates and loads `sh.elf`, installs
 a 64-bit TSS and an IDT gate, and enters Ring 3 with `iretq`. The user pages at
 32-36 MiB are marked user-accessible while kernel pages remain supervisor-only.
 An `int 0x80` boundary currently provides synchronous `read`, `write`, `exec`,
-`exit`, `getcwd`, `chdir`, and directory-list operations. Standard input and
-output are backed by QEMU's COM1 serial console.
+`exit`, `getcwd`, `chdir`, `time`, and directory-list operations. Standard
+input and output are backed by QEMU's COM1 serial console. Syscall numbers are
+shared by the kernel and userspace through `typephp_os_syscall.h`.
 
-The shell synchronously executes the separate `ls.elf` and `cd.elf` images.
-Only one user context runs at a time: while a command is active, the kernel
-keeps the shell register frame and restores it when the command calls `exit`.
+The shell synchronously executes separate `ls.elf`, `cd.elf`, `pwd.elf`, and
+`date.elf` images. Short-lived commands reuse one ELF load address; only the
+resident shell has a separate image and stack. Only one user context runs at a
+time: while a command is active, the kernel keeps the shell register frame and
+restores it when the command calls `exit`.
 Because this is a deliberately single-task model, the working directory is a
 session-global property; a successful `cd` therefore remains visible after
 control returns to the shell.
@@ -153,7 +157,10 @@ Available commands are:
 
 ```text
 ls
+date
+pwd
 cd DOCS
+pwd
 ls
 cd ..
 ```

@@ -61,7 +61,7 @@ void _start(void)
     }
     typephp_write("TypePHP-OS user shell\n");
     typephp_write("Ring 3 confirmed\n");
-    typephp_write("Commands: ls, cd <directory>\n");
+    typephp_write("Commands: ls, cd <directory>, pwd, date, fault\n");
     for (;;) {
         char *argument;
         show_prompt();
@@ -78,7 +78,9 @@ void _start(void)
                 ++argument;
             }
         }
-        if (string_equal(line, "ls") || string_equal(line, "cd")) {
+        if (string_equal(line, "ls") || string_equal(line, "cd")
+            || string_equal(line, "pwd") || string_equal(line, "date")
+            || string_equal(line, "fault")) {
             if (typephp_syscall(TYPEPHP_SYS_EXEC,
                     (long) line, (long) argument, 0) < 0) {
                 typephp_write("sh: unable to execute command\n");
